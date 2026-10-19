@@ -127,9 +127,11 @@ The icon script expects Icon Composer at `/Applications/Icon Composer.app` and e
 
 ### GitHub releases
 
-Publish a GitHub release with a tag such as `v1.0.0`; no manual file upload is needed. The **Build release** workflow checks out the latest `main` when the job starts, builds for Apple Silicon on macOS, and attaches the app ZIP, `SHA256SUMS.txt`, and `BUILD-INFO.txt` to that release.
+Publish a GitHub release with a tag such as `v1.0.0`; no manual file upload is needed. The **Build release** workflow checks out the latest `main` when the job starts, builds for Apple Silicon on macOS, and attaches a DMG installer, `SHA256SUMS.txt`, and `BUILD-INFO.txt` to that release.
 
-The build uses the runner's Xcode SDK. Its source commit is recorded in `BUILD-INFO.txt` and the app's Info.plist, since `main` may have advanced beyond the release tag. Rerunning the workflow rebuilds the then-current `main` and replaces matching assets. Release builds are ad hoc signed and are not notarized by Apple.
+The build uses the runner's Xcode SDK. Its source commit is recorded in `BUILD-INFO.txt` and the app's Info.plist, since `main` may have advanced beyond the release tag. Rerunning the workflow rebuilds the then-current `main` and replaces matching assets. To rebuild an existing release, run **Build release** manually from the Actions tab and enter its tag. Open the downloaded DMG and drag GlassChat from the left onto Applications on the right.
+
+Release builds are ad hoc signed and are not notarized by Apple.
 
 ## Development notes
 

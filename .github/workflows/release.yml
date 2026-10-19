@@ -3,12 +3,18 @@ name: Build release
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Existing release tag to rebuild from main
+        required: true
+        type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: release-${{ github.event.release.id }}
+  group: release-${{ github.event.release.tag_name || inputs.release_tag }}
   cancel-in-progress: false
 
 jobs:
@@ -17,13 +23,18 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 30
     env:
-      RELEASE_TAG: ${{ github.event.release.tag_name }}
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.release_tag }}
     steps:
       - name: Check out latest main
         uses: actions/checkout@v4
         with:
           ref: main
           persist-credentials: false
+
+      - name: Install DMG builder
+        run: |
+          python3 -m venv "$RUNNER_TEMP/dmgbuild"
+          "$RUNNER_TEMP/dmgbuild/bin/pip" install 'dmgbuild==1.6.5'
 
       - name: Build and package
         shell: bash
@@ -59,8 +70,9 @@ jobs:
           plutil -lint "$APP/Contents/Info.plist"
           file "$APP/Contents/MacOS/GlassChat"
           mkdir -p build/release
-          ARCHIVE="GlassChat-${RELEASE_TAG}-macOS-arm64.zip"
-          ditto -c -k --sequesterRsrc --keepParent "$APP" "build/release/$ARCHIVE"
+          ARCHIVE="GlassChat-${RELEASE_TAG}-macOS-arm64.dmg"
+          "$RUNNER_TEMP/dmgbuild/bin/dmgbuild" -s scripts/dmg-settings.py -D app="$APP" GlassChat "build/release/$ARCHIVE"
+          hdiutil verify "build/release/$ARCHIVE"
           (cd build/release && shasum -a 256 "$ARCHIVE" > SHA256SUMS.txt)
           {
             echo "Release: $RELEASE_TAG"
@@ -76,4 +88,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh release upload "$RELEASE_TAG" build/release/* --clobber
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" build/release/* --clobber
+          OLD_ZIP="GlassChat-${RELEASE_TAG}-macOS-arm64.zip"
+          if gh release view "$RELEASE_TAG" --json assets --jq '.assets[].name' | grep -Fxq "$OLD_ZIP"; then
+            gh release delete-asset "$RELEASE_TAG" "$OLD_ZIP" --yes
+          fi
