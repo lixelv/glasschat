@@ -6,6 +6,8 @@ struct ChatView: View {
     @Environment(ChatController.self) private var controller
     @State private var draft = ""
     @State private var showPrompt = false
+    @State private var viewportHeight: CGFloat = 0
+    private static let bottomID = "bottom"
     private var store = ChatStore.shared
 
     init(chatID: Chat.ID) {
@@ -21,21 +23,34 @@ struct ChatView: View {
                 EmptyChat(model: chat.map { $0.model.isEmpty ? AppSettings.shared.defaultModel : $0.model } ?? "")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollView {
-                    LazyVStack(spacing: 18) {
-                        ForEach(messages) { message in
-                            MessageRow(message: message)
-                                .id(message.id)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        // Messages start at the top; the column is at least as tall as the view,
+                        // so the ScrollView never has bare space of its own (it lit up under the pointer).
+                        LazyVStack(spacing: 18) {
+                            ForEach(messages) { message in
+                                MessageRow(message: message)
+                                    .id(message.id)
+                            }
+                            Color.clear.frame(height: 1).id(Self.bottomID)
                         }
+                        .frame(maxWidth: 760)
+                        .frame(maxWidth: .infinity, minHeight: viewportHeight, alignment: .top)
+                        .padding(.horizontal, 24)
+                        .padding(.top, 20)
+                        .padding(.bottom, 12)
+                        .contentShape(.rect)
                     }
-                    .frame(maxWidth: 760)
-                    .frame(maxWidth: .infinity)
-                    .padding(.horizontal, 24)
-                    .padding(.top, 20)
-                    .padding(.bottom, 12)
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height - 32 } action: { viewportHeight = max($0, 0) }
+                    .onAppear { proxy.scrollTo(Self.bottomID, anchor: .bottom) }
+                    .onChange(of: messages.count) { withAnimation(.smooth) { proxy.scrollTo(Self.bottomID, anchor: .bottom) } }
+                    .onChange(of: messages.last?.content.count) {
+                        if controller.isStreaming(chatID) { proxy.scrollTo(Self.bottomID, anchor: .bottom) }
+                    }
                 }
-                .defaultScrollAnchor(.bottom)
                 .scrollContentBackground(.hidden)
+                // The edge effect under the title bar lit up under the pointer.
+                .scrollEdgeEffectHidden(true, for: .top)
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
