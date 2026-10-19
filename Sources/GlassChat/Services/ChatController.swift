@@ -64,6 +64,12 @@ final class ChatController {
                             if let name { call.name += name }
                             call.arguments += arguments
                             calls[index] = call
+                        case .usage(let input, let output):
+                            // Each round of tool calls is a request of its own: they add up.
+                            edit(id, assistant.id) {
+                                $0.inputTokens = ($0.inputTokens ?? 0) + input
+                                $0.outputTokens = ($0.outputTokens ?? 0) + output
+                            }
                         case .finish:
                             break
                         }
@@ -97,7 +103,7 @@ final class ChatController {
                         }
                     }
                     var results: [String: (String, Bool)] = [:]
-                    try await withTaskCancellationHandler {
+                    await withTaskCancellationHandler {
                         for (call, task) in zip(round, running) { results[call.id] = await task.value }
                     } onCancel: {
                         for task in running { task.cancel() }

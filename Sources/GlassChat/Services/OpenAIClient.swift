@@ -6,6 +6,8 @@ enum StreamEvent: Sendable {
     /// A piece of a tool call: the first piece of an index has its id and name, all add to the arguments.
     case toolCall(index: Int, id: String?, name: String?, arguments: String)
     case finish(reason: String?)
+    /// Tokens of the whole request (the last chunk, asked for with `stream_options.include_usage`).
+    case usage(input: Int, output: Int)
 }
 
 struct APIError: LocalizedError, Sendable {
@@ -50,6 +52,7 @@ struct OpenAIClient: Sendable {
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         var body: [String: JSONValue] = [
             "model": .string(model), "stream": .bool(true), "messages": .array(messages),
+            "stream_options": .object(["include_usage": .bool(true)]),
         ]
         if !tools.isEmpty { body["tools"] = .array(tools) }
         request.httpBody = try? JSONEncoder().encode(JSONValue.object(body))
@@ -95,11 +98,16 @@ struct OpenAIClient: Sendable {
                 let delta: Delta?
                 let finish_reason: String?
             }
+            struct Usage: Decodable { let prompt_tokens: Int?; let completion_tokens: Int? }
             let choices: [Choice]?
+            let usage: Usage?
         }
-        guard let chunk = try? JSONDecoder().decode(Chunk.self, from: Data(payload.utf8)),
-              let choice = chunk.choices?.first else { return [] }
+        guard let chunk = try? JSONDecoder().decode(Chunk.self, from: Data(payload.utf8)) else { return [] }
         var events: [StreamEvent] = []
+        if let usage = chunk.usage, usage.prompt_tokens != nil || usage.completion_tokens != nil {
+            events.append(.usage(input: usage.prompt_tokens ?? 0, output: usage.completion_tokens ?? 0))
+        }
+        guard let choice = chunk.choices?.first else { return events }
         if let text = choice.delta?.content, !text.isEmpty { events.append(.text(text)) }
         for (n, call) in (choice.delta?.tool_calls ?? []).enumerated() {
             events.append(.toolCall(index: call.index ?? n, id: call.id, name: call.function?.name,

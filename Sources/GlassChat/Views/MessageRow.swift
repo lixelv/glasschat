@@ -39,12 +39,20 @@ struct MessageRow: View {
                     MarkdownMessage(text: message.content)
                 }
                 if !message.isPartial {
-                    Button(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc", action: copy)
-                        .labelStyle(.iconOnly)
-                        .buttonStyle(.borderless)
-                        .foregroundStyle(.secondary)
-                        .help("Copy answer")
-                        .opacity(hovering || copied ? 1 : 0)
+                    HStack(spacing: 10) {
+                        Button(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc", action: copy)
+                            .labelStyle(.iconOnly)
+                            .buttonStyle(.borderless)
+                            .foregroundStyle(.secondary)
+                            .help("Copy answer")
+                            .opacity(hovering || copied ? 1 : 0)
+                        if let input = message.inputTokens, let output = message.outputTokens {
+                            Text("\(input.formatted()) in · \(output.formatted()) out")
+                                .font(.caption.monospacedDigit())
+                                .foregroundStyle(Palette.secondaryText)
+                                .help("Tokens read and written for this answer")
+                        }
+                    }
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)

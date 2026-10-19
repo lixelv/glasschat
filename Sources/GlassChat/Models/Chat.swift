@@ -49,6 +49,9 @@ struct Message: Identifiable, Codable, Hashable, Sendable {
     var attachments: [Attachment] = []
     /// Assistant only: the rounds of tool calls before the final `content`.
     var steps: [ToolStep] = []
+    /// Assistant only: tokens read and written over all the requests of the answer, when the server said.
+    var inputTokens: Int?
+    var outputTokens: Int?
 
     init(role: Role, content: String, isPartial: Bool = false, attachments: [Attachment] = []) {
         self.role = role
@@ -67,6 +70,8 @@ struct Message: Identifiable, Codable, Hashable, Sendable {
         isPartial = try c.decodeIfPresent(Bool.self, forKey: .isPartial) ?? false
         attachments = try c.decodeIfPresent([Attachment].self, forKey: .attachments) ?? []
         steps = try c.decodeIfPresent([ToolStep].self, forKey: .steps) ?? []
+        inputTokens = try c.decodeIfPresent(Int.self, forKey: .inputTokens)
+        outputTokens = try c.decodeIfPresent(Int.self, forKey: .outputTokens)
     }
 }
 
