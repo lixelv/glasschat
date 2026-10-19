@@ -74,13 +74,13 @@ struct ChatView: View {
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
                         if !dropZone.isTargeted { composerHeight = height }
                     }
-                // The model, bottom left under the field (as in Claude Code).
+                // The model, under the field on the right.
                 if !dropZone.isTargeted {
                     HStack {
-                        ModelPicker(chatID: chatID)
                         Spacer()
+                        ModelPicker(chatID: chatID)
                     }
-                    .padding(.leading, 6)
+                    .padding(.trailing, 6)
                     .padding(.top, -4)
                     .transition(.opacity)
                 }

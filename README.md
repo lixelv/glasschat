@@ -24,7 +24,8 @@ Notes:
 - `Vendor/HighlightSwift` is HighlightSwift 1.1.0 with `@Entry` and `#Preview` removed for the same reason.
 - `Vendor/swift-markdown-ui` is MarkdownUI 2.4.1 with two patches: an inline image can be moved off the baseline
   (`InlineImageMetrics`, so a formula's baseline meets the text's) and one failing inline image no longer drops the others.
-- `scripts/make-icon.swift <dir>.iconset` renders the icon; `iconutil -c icns` turns it into `Resources/AppIcon.icns`.
+- The icon is an Icon Composer document, `Resources/AppIcon.icon` (open it in Icon Composer to edit);
+  `scripts/make-icon.sh` renders it with Icon Composer's `ictool` into `Resources/AppIcon.icns`.
 
 ## Files and MCP
 

@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// A glass button with the chat's model; opens a searchable list (OpenRouter offers hundreds).
+/// The chat's model as plain text; under the pointer it becomes a button with ⌃⌄. Opens a searchable list.
 struct ModelPicker: View {
     let chatID: Chat.ID
     @State private var open = false
+    @State private var hovering = false
     private var store = ChatStore.shared
     private var settings = AppSettings.shared
 
@@ -15,18 +16,25 @@ struct ModelPicker: View {
     }
 
     var body: some View {
+        let active = hovering || open
         Button { open.toggle() } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "cpu")
+            HStack(spacing: 5) {
                 Text(current.isEmpty ? "Choose Model" : current)
                     .lineLimit(1)
+                    .foregroundStyle(active ? Palette.text : Palette.secondaryText)
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.secondary)
+                    .opacity(active ? 1 : 0)
             }
-            .font(.callout.weight(.medium))
+            .font(.callout)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 3)
+            .background(Color.secondary.opacity(active ? 0.15 : 0), in: .capsule)
+            .contentShape(.capsule)
         }
-        .buttonStyle(.glass)
+        .buttonStyle(.plain)
+        .onHover { inside in withAnimation(.easeOut(duration: 0.15)) { hovering = inside } }
         .fixedSize()
         .help("Model of this chat")
         .popover(isPresented: $open, arrowEdge: .top) {

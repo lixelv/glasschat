@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- The bubble in front: tail to the lower right, with three lines of text cut out. -->
+  <path fill="#FFFFFF" fill-rule="evenodd" d="M454 426h308c62 0 112 50 112 112v170c0 62-50 112-112 112h-2v70c0 17-20 27-33 16l-110-86H454c-62 0-112-50-112-112V538c0-62 50-112 112-112zM480 548a24 24 0 0 0 0 48h256a24 24 0 0 0 0-48zM480 640a24 24 0 0 0 0 48h176a24 24 0 0 0 0-48z"/>
+</svg>
