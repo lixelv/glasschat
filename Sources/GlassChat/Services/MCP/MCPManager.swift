@@ -1,7 +1,8 @@
 import Foundation
 import Observation
 
-/// The MCP servers of Settings: kept in mcp.json, connected while enabled, and their tools offered to the model.
+/// The MCP servers: `{"mcpServers": {...}}` in mcp.json, connected while enabled, their tools offered to the model,
+/// plus the built-in registry tools through which the model edits that list.
 @Observable
 @MainActor
 final class MCPManager {
@@ -18,6 +19,10 @@ final class MCPManager {
     }
 
     private(set) var servers: [MCPServer] = []
+    /// The `mcpServers` object.
+    private(set) var config: [String: JSONValue] = [:]
+    /// Entries that could not be read.
+    private(set) var configErrors: [String] = []
     private(set) var status: [MCPServer.ID: Status] = [:]
     private(set) var tools: [MCPServer.ID: [Tool]] = [:]
     private var transports: [MCPServer.ID: any MCPTransport] = [:]
@@ -31,38 +36,166 @@ final class MCPManager {
     }
 
     private init() {
-        if let data = try? Data(contentsOf: Self.fileURL),
-           let saved = try? JSONDecoder().decode([MCPServer].self, from: data) {
-            servers = saved
+        guard let data = try? Data(contentsOf: Self.fileURL),
+              let json = try? JSONDecoder().decode(JSONValue.self, from: data) else { return }
+        if case .object(let root) = json, case .object(let servers)? = root["mcpServers"] {
+            load(servers)
+        } else if let old = json.array {
+            // The list the first MCP version wrote: name, enabled, transport, command line, url, header lines.
+            var servers: [String: JSONValue] = [:]
+            for entry in old {
+                guard let name = entry["name"]?.string else { continue }
+                var o: [String: JSONValue] = [:]
+                if entry["transport"]?.string == "http" {
+                    o["url"] = entry["url"] ?? .string("")
+                    o["headers"] = .object(Self.lines(entry["headers"]?.string ?? "", ":").mapValues(JSONValue.string))
+                } else {
+                    let parts = (entry["command"]?.string ?? "").split(whereSeparator: \.isWhitespace).map(String.init)
+                    o["command"] = .string(parts.first ?? "")
+                    o["args"] = .array(parts.dropFirst().map(JSONValue.string))
+                    let env = Self.lines(entry["environment"]?.string ?? "", "=")
+                    if !env.isEmpty { o["env"] = .object(env.mapValues(JSONValue.string)) }
+                }
+                if case .bool(false)? = entry["enabled"] { o["disabled"] = .bool(true) }
+                servers[name] = .object(o)
+            }
+            load(servers)
+            save()
         }
     }
 
-    // MARK: Settings
-
-    func add(_ server: MCPServer) {
-        servers.append(server)
-        changed()
+    private static func lines(_ text: String, _ separator: Character) -> [String: String] {
+        var result: [String: String] = [:]
+        for line in text.split(whereSeparator: \.isNewline) {
+            guard let i = line.firstIndex(of: separator) else { continue }
+            let key = line[..<i].trimmingCharacters(in: .whitespaces)
+            if !key.isEmpty { result[key] = line[line.index(after: i)...].trimmingCharacters(in: .whitespaces) }
+        }
+        return result
     }
 
-    func update(_ server: MCPServer) {
-        guard let i = servers.firstIndex(where: { $0.id == server.id }) else { return }
-        servers[i] = server
-        changed()
+    private func load(_ servers: [String: JSONValue]) {
+        config = servers
+        configErrors = []
+        self.servers = servers.keys.sorted().compactMap { name in
+            do { return try MCPServer(name: name, config: servers[name]!) }
+            catch { configErrors.append(error.localizedDescription); return nil }
+        }
     }
 
-    func remove(_ id: MCPServer.ID) {
-        servers.removeAll { $0.id == id }
-        changed()
+    private static func pretty(_ value: JSONValue) -> String {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
+        return String(decoding: (try? encoder.encode(value)) ?? Data(), as: UTF8.self)
+    }
+
+    private func save() {
+        try? Data(configText.utf8).write(to: Self.fileURL, options: .atomic)
+    }
+
+    // MARK: Registry (Settings and the built-in tools)
+
+    /// What Settings shows: `{"mcpServers": {...}}`, pretty printed.
+    var configText: String {
+        Self.pretty(.object(["mcpServers": .object(config)]))
+    }
+
+    /// Takes the JSON from Settings; throws (and keeps the old list) when it cannot be read.
+    func apply(_ text: String) throws {
+        guard let json = JSONValue.parse(text) else { throw MCPError(message: "Not valid JSON") }
+        guard case .object(let root) = json, case .object(let servers)? = root["mcpServers"] else {
+            throw MCPError(message: "Expected {\"mcpServers\": {\"name\": {…}}}")
+        }
+        for (name, entry) in servers { _ = try MCPServer(name: name, config: entry) }
+        load(servers)
+        save()
+        syncConnections()
     }
 
     func reconnect(_ id: MCPServer.ID) {
         Task { await disconnect(id); syncConnections() }
     }
 
-    private func changed() {
-        if let data = try? JSONEncoder().encode(servers) { try? data.write(to: Self.fileURL, options: .atomic) }
+    /// Adds, replaces or (nil) removes one entry, checking it first.
+    private func setEntry(_ name: String, _ entry: JSONValue?) throws {
+        if let entry { _ = try MCPServer(name: name, config: entry) }
+        var servers = config
+        servers[name] = entry
+        load(servers)
+        save()
         syncConnections()
     }
+
+    /// The built-in tools: the model reads and edits `mcpServers`.
+    enum RegistryTool: String, CaseIterable, Sendable {
+        case list = "mcp_registry_list"
+        case get = "mcp_registry_get"
+        case add = "mcp_registry_add"
+        case update = "mcp_registry_update"
+        case delete = "mcp_registry_delete"
+
+        var description: String {
+            switch self {
+            case .list: "List the names of the MCP servers in the registry, with their state."
+            case .get: "Read one MCP server entry of the registry by its name."
+            case .add: "Add an MCP server to the registry. Fails if the name exists. The config is an mcpServers entry: {\"command\": \"npx\", \"args\": [...], \"env\": {...}} for a local server or {\"url\": \"https://…\", \"headers\": {...}} for a remote one; \"disabled\": true keeps it off."
+            case .update: "Replace the entry of an existing MCP server in the registry. Fails if the name does not exist."
+            case .delete: "Delete an MCP server from the registry by its name. Fails if the name does not exist."
+            }
+        }
+
+        var parameters: JSONValue {
+            let name: JSONValue = .object(["type": .string("string"), "description": .string("The server's key in mcpServers")])
+            let config: JSONValue = .object(["type": .string("object"), "description": .string("The mcpServers entry")])
+            switch self {
+            case .list:
+                return .object(["type": .string("object"), "properties": .object([:])])
+            case .get, .delete:
+                return .object(["type": .string("object"), "properties": .object(["name": name]), "required": .array([.string("name")])])
+            case .add, .update:
+                return .object(["type": .string("object"), "properties": .object(["name": name, "config": config]),
+                                "required": .array([.string("name"), .string("config")])])
+            }
+        }
+    }
+
+    private func registry(_ tool: RegistryTool, _ args: JSONValue) throws -> String {
+        let name = args["name"]?.string?.trimmingCharacters(in: .whitespaces) ?? ""
+        if tool != .list, name.isEmpty { throw MCPError(message: "A \"name\" is needed.") }
+        switch tool {
+        case .list:
+            let list: [JSONValue] = config.keys.sorted().map { key in
+                let server = servers.first { $0.id == key }
+                let state: String = switch status[key] {
+                case .connected?: "connected, \(tools[key]?.count ?? 0) tools"
+                case .connecting?: "connecting"
+                case .failed(let message)?: "failed: \(message)"
+                default: server == nil ? "invalid entry" : (server!.enabled ? "not connected" : "disabled")
+                }
+                return .object(["name": .string(key), "state": .string(state)])
+            }
+            return Self.pretty(.object(["servers": .array(list)]))
+        case .get:
+            guard let entry = config[name] else { throw MCPError(message: "There is no MCP server \"\(name)\".") }
+            return Self.pretty(.object([name: entry]))
+        case .add:
+            guard config[name] == nil else { throw MCPError(message: "An MCP server \"\(name)\" already exists; update it instead.") }
+            guard let entry = args["config"] else { throw MCPError(message: "A \"config\" is needed.") }
+            try setEntry(name, entry)
+            return "Added \"\(name)\". It is connecting; its tools are offered from the next message."
+        case .update:
+            guard config[name] != nil else { throw MCPError(message: "There is no MCP server \"\(name)\"; add it instead.") }
+            guard let entry = args["config"] else { throw MCPError(message: "A \"config\" is needed.") }
+            try setEntry(name, entry)
+            return "Updated \"\(name)\". It reconnects; its tools are offered from the next message."
+        case .delete:
+            guard config[name] != nil else { throw MCPError(message: "There is no MCP server \"\(name)\".") }
+            try setEntry(name, nil)
+            return "Deleted \"\(name)\"."
+        }
+    }
+
+    // MARK: Connections
 
     /// Connects enabled servers whose configuration changed and drops the rest.
     func syncConnections() {
@@ -74,7 +207,7 @@ final class MCPManager {
                 Task { await connect(server) }
             }
         }
-        for id in Array(transports.keys) where !servers.contains(where: { $0.id == id }) {
+        for id in Set(transports.keys).union(status.keys) where !servers.contains(where: { $0.id == id }) {
             Task { await disconnect(id) }
         }
     }
@@ -95,17 +228,14 @@ final class MCPManager {
             let transport: any MCPTransport
             switch server.transport {
             case .stdio:
-                guard !server.command.trimmingCharacters(in: .whitespaces).isEmpty else {
-                    throw MCPError(message: "No command")
-                }
-                let stdio = try StdioTransport(command: server.command, environment: server.environmentPairs)
+                let stdio = try StdioTransport(command: server.commandLine, environment: server.env)
                 await stdio.start()
                 transport = stdio
             case .http:
                 guard let url = URL(string: server.url.trimmingCharacters(in: .whitespaces)), url.scheme != nil else {
                     throw MCPError(message: "The URL is not valid")
                 }
-                transport = HTTPTransport(url: url, headers: server.headerPairs)
+                transport = HTTPTransport(url: url, headers: server.headers)
             }
             transports[server.id] = transport
 
@@ -149,77 +279,98 @@ final class MCPManager {
 
     /// A function the model may call, and where it goes.
     struct Function: Sendable {
+        enum Target: Sendable {
+            case server(MCPServer.ID, tool: String)
+            case registry(RegistryTool)
+        }
+
         let definition: JSONValue
-        let serverID: MCPServer.ID
-        let tool: String
+        let target: Target
     }
 
-    /// The tools of the connected servers not switched off in the chat, keyed by the function name the model sees.
-    func functions(disabled: Set<MCPServer.ID>) -> [String: Function] {
+    /// The key a chat switches the built-in registry tools off with.
+    static let registryKey = "__registry__"
+    /// The prefix of the built-in functions (shown as "GlassChat" on their cards).
+    static let registryPrefix = "glasschat"
+
+    /// The built-in registry tools (unless switched off in the chat) and the tools of the connected servers
+    /// not switched off in it, keyed by the function name the model sees.
+    func functions(disabled: Set<String>) -> [String: Function] {
         var result: [String: Function] = [:]
+        if !disabled.contains(Self.registryKey) {
+            for tool in RegistryTool.allCases {
+                let name = Self.registryPrefix + "__" + tool.rawValue
+                result[name] = Function(definition: Self.function(name, tool.description, tool.parameters), target: .registry(tool))
+            }
+        }
         for server in servers where server.enabled && !disabled.contains(server.id) && status[server.id] == .connected {
             let prefix = Self.slug(server.name, limit: 20)
             for tool in tools[server.id] ?? [] {
                 var name = prefix + "__" + Self.slug(tool.name, limit: 60 - prefix.count)
                 var n = 2
                 while result[name] != nil { name = String(name.prefix(60)) + "\(n)"; n += 1 }
-                let definition: JSONValue = .object([
-                    "type": .string("function"),
-                    "function": .object([
-                        "name": .string(name),
-                        "description": .string(tool.description.isEmpty ? "\(tool.name) (\(server.name))" : tool.description),
-                        "parameters": tool.inputSchema,
-                    ]),
-                ])
-                result[name] = Function(definition: definition, serverID: server.id, tool: tool.name)
+                let description = tool.description.isEmpty ? "\(tool.name) (\(server.name))" : tool.description
+                result[name] = Function(definition: Self.function(name, description, tool.inputSchema),
+                                        target: .server(server.id, tool: tool.name))
             }
         }
         return result
     }
 
+    private static func function(_ name: String, _ description: String, _ parameters: JSONValue) -> JSONValue {
+        .object([
+            "type": .string("function"),
+            "function": .object(["name": .string(name), "description": .string(description), "parameters": parameters]),
+        ])
+    }
+
     /// Calls a tool; the text is the tool's result (or what went wrong) for the model.
     func call(_ function: Function, arguments: String) async -> (text: String, isError: Bool) {
-        guard let transport = transports[function.serverID] else {
-            return ("The MCP server of this tool is not connected.", true)
-        }
         let args = arguments.trimmingCharacters(in: .whitespaces).isEmpty ? .object([:]) : JSONValue.parse(arguments)
         guard let args else { return ("The arguments are not valid JSON: \(arguments)", true) }
-        do {
-            let result = try await transport.request("tools/call", params: .object([
-                "name": .string(function.tool), "arguments": args,
-            ]))
-            let isError: Bool = { if case .bool(true)? = result["isError"] { return true }; return false }()
-            var parts: [String] = []
-            for item in result["content"]?.array ?? [] {
-                switch item["type"]?.string {
-                case "text": parts.append(item["text"]?.string ?? "")
-                case "resource": parts.append(item["resource"]?["text"]?.string ?? item["resource"]?.jsonString ?? "")
-                case let type?: parts.append("[\(type) content]")
-                case nil: parts.append(item.jsonString)
+        switch function.target {
+        case .registry(let tool):
+            do { return (try registry(tool, args), false) }
+            catch { return (error.localizedDescription, true) }
+        case .server(let id, let tool):
+            guard let transport = transports[id] else { return ("The MCP server of this tool is not connected.", true) }
+            do {
+                let result = try await transport.request("tools/call", params: .object(["name": .string(tool), "arguments": args]))
+                let isError: Bool = { if case .bool(true)? = result["isError"] { return true }; return false }()
+                var parts: [String] = []
+                for item in result["content"]?.array ?? [] {
+                    switch item["type"]?.string {
+                    case "text": parts.append(item["text"]?.string ?? "")
+                    case "resource": parts.append(item["resource"]?["text"]?.string ?? item["resource"]?.jsonString ?? "")
+                    case let type?: parts.append("[\(type) content]")
+                    case nil: parts.append(item.jsonString)
+                    }
                 }
+                if parts.isEmpty, let structured = result["structuredContent"] { parts.append(structured.jsonString) }
+                return (parts.joined(separator: "\n"), isError)
+            } catch is CancellationError {
+                return ("Cancelled.", true)
+            } catch {
+                return ("The tool failed: \(error.localizedDescription)", true)
             }
-            if parts.isEmpty, let structured = result["structuredContent"] { parts.append(structured.jsonString) }
-            return (parts.joined(separator: "\n"), isError)
-        } catch is CancellationError {
-            return ("Cancelled.", true)
-        } catch {
-            return ("The tool failed: \(error.localizedDescription)", true)
         }
     }
 
-    /// The name a server has in Settings, from the prefix of a function name.
+    /// The name a server has in the registry, from the prefix of a function name.
     func displayName(ofSlug slug: String) -> String {
-        servers.first { Self.slug($0.name, limit: 20) == slug }?.name ?? slug
+        if slug == Self.registryPrefix { return "GlassChat" }
+        return servers.first { Self.slug($0.name, limit: 20) == slug }?.name ?? slug
     }
 
-    func activeToolCount(disabled: Set<MCPServer.ID>) -> Int {
-        servers.filter { $0.enabled && !disabled.contains($0.id) && status[$0.id] == .connected }
+    func activeToolCount(disabled: Set<String>) -> Int {
+        let registry = disabled.contains(Self.registryKey) ? 0 : RegistryTool.allCases.count
+        return registry + servers.filter { $0.enabled && !disabled.contains($0.id) && status[$0.id] == .connected }
             .reduce(0) { $0 + (tools[$1.id]?.count ?? 0) }
     }
 
     /// Letters, digits, `_` and `-` only: what function names may hold.
     static func slug(_ text: String, limit: Int) -> String {
-        let allowed = text.unicodeScalars.map { CharacterSet.alphanumerics.contains($0) && $0.isASCII || $0 == "_" || $0 == "-" ? Character($0) : "_" }
+        let allowed = text.unicodeScalars.map { (CharacterSet.alphanumerics.contains($0) && $0.isASCII) || $0 == "_" || $0 == "-" ? Character($0) : "_" }
         let slug = String(allowed).trimmingCharacters(in: CharacterSet(charactersIn: "_"))
         return String((slug.isEmpty ? "mcp" : slug).prefix(max(limit, 1)))
     }

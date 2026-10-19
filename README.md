@@ -31,10 +31,12 @@ Notes:
 - **Files**: the paperclip in the message field, ⌘V, or drop files on the window (the field turns into a drop zone).
   Images go as `image_url`, audio as `input_audio`, text and code inline, PDFs and anything else as `file`
   (base64); a model that cannot read a type says so. Copies are kept in `~/Library/Application Support/GlassChat/files`.
-- **MCP**: Settings → MCP. Local servers (stdio) run through your login shell, remote ones use Streamable HTTP
-  with optional headers. Their tools are offered to the model as functions (`server__tool`); calls run without asking,
-  in parallel, up to 20 rounds per answer, and show as cards in the chat. The hammer button in a chat switches servers
-  off for that chat. The list is kept in `mcp.json` beside the chats.
+- **MCP**: Settings → MCP is the `{"mcpServers": {...}}` JSON of Claude Desktop: `command` + `args` + `env` for a
+  local server (run through your login shell), `url` + `headers` for a remote one (Streamable HTTP), `"disabled": true`
+  to keep one off. Tools are offered to the model as functions (`server__tool`); calls run without asking, in parallel,
+  up to 20 rounds per answer, and show as cards in the chat. The model also has built-in registry tools
+  (`mcp_registry_list/get/add/update/delete`) to edit that JSON itself. The hammer button in a chat switches the registry
+  tools and each server off for that chat. The JSON is kept in `mcp.json` beside the chats.
 
 ## Settings
 

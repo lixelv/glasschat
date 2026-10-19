@@ -78,8 +78,8 @@ struct Chat: Identifiable, Codable, Hashable, Sendable {
     var createdAt = Date.now
     var updatedAt = Date.now
     var messages: [Message] = []
-    /// MCP servers switched off in this chat (the others enabled in Settings are on).
-    var disabledServers: Set<UUID> = []
+    /// MCP servers (by name, and `MCPManager.registryKey`) switched off in this chat.
+    var disabledServers: Set<String> = []
 
     init(model: String) {
         self.model = model
@@ -94,6 +94,6 @@ struct Chat: Identifiable, Codable, Hashable, Sendable {
         createdAt = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? .now
         updatedAt = try c.decodeIfPresent(Date.self, forKey: .updatedAt) ?? .now
         messages = try c.decodeIfPresent([Message].self, forKey: .messages) ?? []
-        disabledServers = try c.decodeIfPresent(Set<UUID>.self, forKey: .disabledServers) ?? []
+        disabledServers = try c.decodeIfPresent(Set<String>.self, forKey: .disabledServers) ?? []
     }
 }

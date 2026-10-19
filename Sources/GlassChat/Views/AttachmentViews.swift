@@ -5,6 +5,7 @@ import SwiftUI
 struct AttachmentChip: View {
     let attachment: Attachment
     var remove: (() -> Void)?
+    @Environment(Preview.self) private var preview
 
     var body: some View {
         HStack(spacing: 8) {
@@ -33,7 +34,10 @@ struct AttachmentChip: View {
         .padding(.trailing, remove == nil ? 10 : 7)
         .padding(.vertical, 5)
         .background(Color.secondary.opacity(0.12), in: .rect(cornerRadius: 10))
-        .onTapGesture(count: 2) { NSWorkspace.shared.open(AttachmentStore.url(of: attachment)) }
+        .contentShape(.rect)
+        // A click opens it in Quick Look.
+        .onTapGesture { preview.url = AttachmentStore.url(of: attachment) }
+        .help("Preview \(attachment.name)")
     }
 
     @ViewBuilder private var thumbnail: some View {
@@ -48,6 +52,7 @@ struct AttachmentChip: View {
 /// The attachments of a sent message: images as pictures, the rest as chips.
 struct MessageAttachments: View {
     let attachments: [Attachment]
+    @Environment(Preview.self) private var preview
 
     var body: some View {
         let images = attachments.filter { $0.kind == .image }
@@ -62,7 +67,7 @@ struct MessageAttachments: View {
                                 .scaledToFill()
                                 .frame(width: images.count == 1 ? 240 : 120, height: images.count == 1 ? 180 : 120)
                                 .clipShape(.rect(cornerRadius: 14))
-                                .onTapGesture(count: 2) { NSWorkspace.shared.open(AttachmentStore.url(of: attachment)) }
+                                .onTapGesture { preview.url = AttachmentStore.url(of: attachment) }
                                 .help(attachment.name)
                         }
                     }

@@ -1,9 +1,12 @@
+import QuickLook
 import SwiftUI
 
 struct RootView: View {
     @State private var controller = ChatController()
     @State private var selection: Chat.ID?
     @State private var showOnboarding = false
+    @State private var dropZone = DropZone()
+    @State private var preview = Preview()
     private var store = ChatStore.shared
     private var settings = AppSettings.shared
 
@@ -21,6 +24,15 @@ struct RootView: View {
             }
         }
         .environment(controller)
+        .environment(dropZone)
+        .environment(preview)
+        // The whole window takes dropped files (sidebar too); the field never pastes their paths.
+        .dropDestination(for: URL.self) { urls, _ in
+            dropZone.drop(urls)
+        } isTargeted: { targeted in
+            withAnimation(.spring(duration: 0.3)) { dropZone.isTargeted = targeted }
+        }
+        .quickLookPreview(Binding(get: { preview.url }, set: { preview.url = $0 }))
         .sheet(isPresented: $showOnboarding) {
             OnboardingView()
         }

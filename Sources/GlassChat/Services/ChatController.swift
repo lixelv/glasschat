@@ -45,12 +45,14 @@ final class ChatController {
 
         let client = OpenAIClient(baseURL: baseURL, token: settings.token)
         let model = chat.model.isEmpty ? settings.defaultModel : chat.model
-        let functions = MCPManager.shared.functions(disabled: chat.disabledServers)
-        let tools = functions.keys.sorted().compactMap { functions[$0]?.definition }
         streaming.insert(id)
         tasks[id] = Task {
             do {
                 for _ in 0..<Self.maxToolRounds {
+                    // Read every round: the registry tools may have changed the servers.
+                    let disabled = store.chat(id)?.disabledServers ?? chat.disabledServers
+                    let functions = MCPManager.shared.functions(disabled: disabled)
+                    let tools = functions.keys.sorted().compactMap { functions[$0]?.definition }
                     var calls: [Int: ToolCall] = [:]
                     for try await event in client.streamChat(model: model, messages: turns, tools: tools) {
                         switch event {

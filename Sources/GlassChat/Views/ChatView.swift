@@ -6,7 +6,7 @@ struct ChatView: View {
     @Environment(ChatController.self) private var controller
     @State private var draft = ""
     @State private var attachments: [Attachment] = []
-    @State private var dropping = false
+    @Environment(DropZone.self) private var dropZone
     @State private var composerHeight: CGFloat = 46
     @State private var showPrompt = false
     @State private var viewportHeight: CGFloat = 0
@@ -62,38 +62,36 @@ struct ChatView: View {
                                 retry: { controller.retry(chatID) },
                                 dismiss: { controller.errors[chatID] = nil })
                 }
-                if !dropping {
-                    HStack {
-                        ModelPicker(chatID: chatID)
-                        Spacer()
-                    }
-                    .transition(.opacity)
-                }
                 Composer(chatID: chatID,
                          text: $draft,
                          attachments: $attachments,
-                         isDropTarget: dropping,
-                         // Twice as tall, taking in the model picker's row (its 28 pt and the 10 pt gap).
-                         dropHeight: composerHeight * 2 + 38,
+                         isDropTarget: dropZone.isTargeted,
+                         // Twice as tall, taking in the model picker's row under it (its 28 pt and the 6 pt gap).
+                         dropHeight: composerHeight * 2 + 34,
                          isStreaming: controller.isStreaming(chatID),
                          send: send,
                          stop: { controller.stop(chatID) })
                     .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
-                        if !dropping { composerHeight = height }
+                        if !dropZone.isTargeted { composerHeight = height }
                     }
+                // The model, bottom left under the field (as in Claude Code).
+                if !dropZone.isTargeted {
+                    HStack {
+                        ModelPicker(chatID: chatID)
+                        Spacer()
+                    }
+                    .padding(.leading, 6)
+                    .padding(.top, -4)
+                    .transition(.opacity)
+                }
             }
             // A little wider than the column of messages.
             .frame(maxWidth: 820)
             .padding(.horizontal, 24)
             .padding(.bottom, 16)
         }
-        .dropDestination(for: URL.self) { urls, _ in
-            let imported = urls.filter(\.isFileURL).compactMap { try? AttachmentStore.importFile(at: $0) }
-            withAnimation(.snappy) { attachments += imported }
-            return !imported.isEmpty
-        } isTargeted: { targeted in
-            withAnimation(.spring(duration: 0.3)) { dropping = targeted }
-        }
+        .onAppear { dropZone.receive = { attachments += $0 } }
+        .background(Palette.content)
         .navigationTitle("")
         .toolbar(removing: .title)
         // The title bar shows the chat's own background: a toolbar backdrop of its own was a lighter band.

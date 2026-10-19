@@ -14,7 +14,7 @@ struct Composer: View {
     let send: () -> Void
     let stop: () -> Void
 
-    @FocusState private var focused: Bool
+    @State private var editorHeight: CGFloat = 34
 
     private var canSend: Bool {
         !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty
@@ -35,41 +35,36 @@ struct Composer: View {
                             }
                         }
                         .padding(.top, 4)
+                        .padding(.leading, 4)
                     }
-                    HStack(alignment: .bottom, spacing: 8) {
+                    // The paperclip stays in the middle; the send button grows with the text.
+                    HStack(alignment: .center, spacing: 8) {
                         Button("Attach Files", systemImage: "paperclip", action: pickFiles)
                             .labelStyle(.iconOnly)
                             .font(.title3)
                             .buttonStyle(.plain)
                             .foregroundStyle(.secondary)
-                            .frame(width: 28, height: 32)
+                            .frame(width: 28, height: 28)
                             .help("Attach files")
 
-                        TextField("Message", text: $text, axis: .vertical)
-                            .textFieldStyle(.plain)
-                            .font(.body)
-                            .lineLimit(1...8)
-                            .focused($focused)
-                            .padding(.vertical, 7)
-                            .onKeyPress(.return, phases: .down) { press in
-                                if press.modifiers.contains(.shift) || press.modifiers.contains(.option) {
-                                    text += "\n"
-                                    return .handled
-                                }
-                                if !isStreaming && canSend { send() }
-                                return .handled
+                        MessageEditor(text: $text, height: $editorHeight, submit: {
+                            if !isStreaming && canSend { send() }
+                        }, attachFiles: add, attachImage: { image in
+                            if let attachment = try? AttachmentStore.importImage(image) {
+                                withAnimation(.snappy) { attachments.append(attachment) }
                             }
-                            .onPasteCommand(of: [.fileURL, .image], perform: paste)
+                        })
+                        .frame(height: editorHeight)
 
                         ToolsButton(chatID: chatID)
 
                         Button(action: isStreaming ? stop : send) {
                             Image(systemName: isStreaming ? "stop.fill" : "arrow.up")
                                 .font(.body.weight(.semibold))
-                                .frame(width: 18, height: 18)
+                                .frame(width: 18, height: max(18, editorHeight - 16))
                         }
                         .buttonStyle(.glassProminent)
-                        .buttonBorderShape(.circle)
+                        .buttonBorderShape(.capsule)
                         .controlSize(.large)
                         .disabled(!isStreaming && !canSend)
                         .help(isStreaming ? "Stop" : "Send")
@@ -100,7 +95,6 @@ struct Composer: View {
             .glassEffect(isDropTarget ? .regular.tint(.accentColor.opacity(0.18)).interactive() : .regular.interactive(),
                          in: .rect(cornerRadius: 24))
         }
-        .onAppear { focused = true }
     }
 
     private func pickFiles() {
@@ -116,19 +110,9 @@ struct Composer: View {
         let imported = urls.compactMap { try? AttachmentStore.importFile(at: $0) }
         withAnimation(.snappy) { attachments += imported }
     }
-
-    /// ⌘V of a file or a picture attaches it; plain text is pasted by the field itself.
-    private func paste(_ providers: [NSItemProvider]) {
-        let pasteboard = NSPasteboard.general
-        if let urls = pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL], !urls.isEmpty {
-            add(urls)
-        } else if let image = NSImage(pasteboard: pasteboard), let attachment = try? AttachmentStore.importImage(image) {
-            withAnimation(.snappy) { attachments.append(attachment) }
-        }
-    }
 }
 
-/// The MCP servers of this chat: how many tools are on, and switches per server.
+/// The MCP servers of this chat: how many tools are on, and switches for the registry tools and each server.
 private struct ToolsButton: View {
     let chatID: Chat.ID
     @State private var open = false
@@ -138,44 +122,54 @@ private struct ToolsButton: View {
 
     init(chatID: Chat.ID) { self.chatID = chatID }
 
+    private func binding(_ key: String) -> Binding<Bool> {
+        Binding(
+            get: { !(store.chat(chatID)?.disabledServers.contains(key) ?? false) },
+            set: { on in store.update(chatID) { if on { $0.disabledServers.remove(key) } else { $0.disabledServers.insert(key) } } }
+        )
+    }
+
     var body: some View {
         let disabled = store.chat(chatID)?.disabledServers ?? []
         let count = mcp.activeToolCount(disabled: disabled)
-        let enabled = mcp.servers.filter(\.enabled)
-        if !enabled.isEmpty {
-            Button { open.toggle() } label: {
-                HStack(spacing: 3) {
-                    Image(systemName: "hammer")
-                    if count > 0 { Text("\(count)").font(.caption.monospacedDigit()) }
-                }
-                .frame(height: 32)
-                .foregroundStyle(count > 0 ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+        Button { open.toggle() } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "hammer")
+                if count > 0 { Text("\(count)").font(.caption.monospacedDigit()) }
             }
-            .buttonStyle(.plain)
-            .help("MCP tools of this chat")
-            .popover(isPresented: $open, arrowEdge: .top) {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("Tools").font(.headline)
-                    ForEach(enabled) { server in
-                        Toggle(isOn: Binding(
-                            get: { !(store.chat(chatID)?.disabledServers.contains(server.id) ?? false) },
-                            set: { on in store.update(chatID) { if on { $0.disabledServers.remove(server.id) } else { $0.disabledServers.insert(server.id) } } }
-                        )) {
-                            VStack(alignment: .leading, spacing: 1) {
-                                Text(server.name)
-                                MCPStatusLine(server: server)
-                            }
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                        }
-                        .toggleStyle(.switch)
+            .frame(height: 28)
+            .foregroundStyle(count > 0 ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
+        }
+        .buttonStyle(.plain)
+        .help("Tools of this chat")
+        .popover(isPresented: $open, arrowEdge: .top) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Tools").font(.headline)
+                Toggle(isOn: binding(MCPManager.registryKey)) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("MCP Registry")
+                        Text("Built in: the model adds, edits and removes servers")
+                            .font(.caption).foregroundStyle(.secondary)
                     }
-                    Divider()
-                    Button("MCP Settings…") { open = false; openSettings() }
-                        .buttonStyle(.link)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                .padding(16)
-                .frame(width: 280)
+                .toggleStyle(.switch)
+                ForEach(mcp.servers.filter(\.enabled)) { server in
+                    Toggle(isOn: binding(server.id)) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(server.name)
+                            MCPStatusLine(server: server)
+                        }
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .toggleStyle(.switch)
+                }
+                Divider()
+                Button("MCP Settings…") { open = false; openSettings() }
+                    .buttonStyle(.link)
             }
+            .padding(16)
+            .frame(width: 300)
         }
     }
 }

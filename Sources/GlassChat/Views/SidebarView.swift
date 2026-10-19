@@ -18,7 +18,7 @@ struct SidebarView: View {
     var body: some View {
         List(selection: $selection) {
             ForEach(sections, id: \.title) { section in
-                Section(section.title) {
+                Section {
                     ForEach(section.chats) { chat in
                         row(chat)
                             .tag(chat.id)
@@ -31,10 +31,17 @@ struct SidebarView: View {
                                 Button("Delete", systemImage: "trash", role: .destructive) { delete(chat.id) }
                             }
                     }
+                } header: {
+                    Text(section.title)
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(Palette.text)
+                        .textCase(nil)
                 }
             }
         }
         .listStyle(.sidebar)
+        .scrollContentBackground(.hidden)
+        .background(Palette.sidebar)
         .searchable(text: $search, placement: .sidebar, prompt: "Search")
         .onDeleteCommand { if let selection { delete(selection) } }
         .toolbar {
@@ -54,21 +61,36 @@ struct SidebarView: View {
         }
     }
 
+    /// As in Notes: the title in bold, then the date and the start of the latest message.
     private func row(_ chat: Chat) -> some View {
         HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(chat.title)
+                    .font(.body.weight(.semibold))
+                    .foregroundStyle(Palette.text)
                     .lineLimit(1)
-                Text(chat.updatedAt, format: .relative(presentation: .named))
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 6) {
+                    Text(chat.updatedAt, format: .dateTime.day(.twoDigits).month(.twoDigits).year())
+                        .foregroundStyle(Palette.text)
+                    Text(Self.preview(of: chat))
+                        .foregroundStyle(Palette.secondaryText)
+                        .lineLimit(1)
+                }
+                .font(.callout)
             }
             Spacer(minLength: 0)
             if controller.isStreaming(chat.id) {
                 ProgressView().controlSize(.mini)
             }
         }
-        .padding(.vertical, 2)
+        .padding(.vertical, 5)
+        .listRowSeparator(.visible)
+        .listRowSeparatorTint(Palette.separator)
+    }
+
+    private static func preview(of chat: Chat) -> String {
+        let last = chat.messages.last { !$0.content.isEmpty }?.content ?? "No messages"
+        return last.split(whereSeparator: \.isNewline).first.map(String.init) ?? last
     }
 
     private func delete(_ id: Chat.ID) {
