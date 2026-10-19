@@ -2,7 +2,8 @@
 
 A native macOS chat client for any OpenAI-compatible API (OpenAI, OpenRouter, Ollama, LM Studio, …),
 built with SwiftUI and Liquid Glass. Chats live in the sidebar, the model is switched from the chat
-window, answers stream in and are rendered as markdown with highlighted code.
+window, answers stream in and are rendered as markdown with highlighted code and LaTeX
+(`$..$`, `\(..\)`, `$$..$$`, `\[..\]`, drawn by SwiftMath).
 
 Requires macOS 26 or later.
 

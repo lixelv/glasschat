@@ -5,8 +5,10 @@ struct MarkdownMessage: View {
     let text: String
 
     var body: some View {
-        Markdown(text)
+        Markdown(MathMarkdown.prepare(text))
             .markdownTheme(.glassChat)
+            .markdownImageProvider(MathImageProvider())
+            .markdownInlineImageProvider(MathInlineImageProvider())
             .textSelection(.enabled)
     }
 }

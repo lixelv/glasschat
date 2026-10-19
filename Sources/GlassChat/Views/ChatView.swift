@@ -72,10 +72,12 @@ struct ChatView: View {
             .padding(.horizontal, 24)
             .padding(.bottom, 16)
         }
-        .navigationTitle(chat?.title ?? "")
+        .navigationTitle("")
+        .toolbar(removing: .title)
         // The title bar shows the chat's own background: a toolbar backdrop of its own was a lighter band.
         .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .toolbar {
+            ToolbarSpacer(.flexible)
             ToolbarItem(placement: .primaryAction) {
                 Button("System Prompt", systemImage: "text.bubble") { showPrompt.toggle() }
                     .help("System prompt of this chat")
