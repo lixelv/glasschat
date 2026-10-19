@@ -33,6 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.activate()
+        MainActor.assumeIsolated { MCPManager.shared.syncConnections() }
     }
 
     func applicationWillTerminate(_ notification: Notification) {

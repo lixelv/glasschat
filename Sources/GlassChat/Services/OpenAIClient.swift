@@ -1,8 +1,11 @@
 import Foundation
 
-struct ChatTurn: Codable, Sendable {
-    let role: String
-    let content: String
+/// What a streamed answer yields.
+enum StreamEvent: Sendable {
+    case text(String)
+    /// A piece of a tool call: the first piece of an index has its id and name, all add to the arguments.
+    case toolCall(index: Int, id: String?, name: String?, arguments: String)
+    case finish(reason: String?)
 }
 
 struct APIError: LocalizedError, Sendable {
@@ -39,12 +42,17 @@ struct OpenAIClient: Sendable {
         return list.data.map(\.id).sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
-    func streamChat(model: String, messages: [ChatTurn]) -> AsyncThrowingStream<String, Error> {
+    /// Streams an answer. `messages` are Chat Completions messages (content may be a list of parts),
+    /// `tools` are function definitions; both go to the server as they are.
+    func streamChat(model: String, messages: [JSONValue], tools: [JSONValue]) -> AsyncThrowingStream<StreamEvent, Error> {
         var request = request("chat/completions", method: "POST")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
-        struct Body: Encodable { let model: String; let stream: Bool; let messages: [ChatTurn] }
-        request.httpBody = try? JSONEncoder().encode(Body(model: model, stream: true, messages: messages))
+        var body: [String: JSONValue] = [
+            "model": .string(model), "stream": .bool(true), "messages": .array(messages),
+        ]
+        if !tools.isEmpty { body["tools"] = .array(tools) }
+        request.httpBody = try? JSONEncoder().encode(JSONValue.object(body))
 
         let sent = request
         return AsyncThrowingStream { continuation in
@@ -60,9 +68,7 @@ struct OpenAIClient: Sendable {
                         guard line.hasPrefix("data:") else { continue }
                         let payload = line.dropFirst(5).trimmingCharacters(in: .whitespaces)
                         if payload == "[DONE]" { break }
-                        if let delta = Self.delta(payload), !delta.isEmpty {
-                            continuation.yield(delta)
-                        }
+                        for event in Self.events(payload) { continuation.yield(event) }
                     }
                     continuation.finish()
                 } catch {
@@ -73,14 +79,34 @@ struct OpenAIClient: Sendable {
         }
     }
 
-    private static func delta(_ payload: String) -> String? {
+    private static func events(_ payload: String) -> [StreamEvent] {
         struct Chunk: Decodable {
-            struct Choice: Decodable { struct Delta: Decodable { let content: String? }; let delta: Delta? }
+            struct Choice: Decodable {
+                struct Delta: Decodable {
+                    struct Call: Decodable {
+                        struct Function: Decodable { let name: String?; let arguments: String? }
+                        let index: Int?
+                        let id: String?
+                        let function: Function?
+                    }
+                    let content: String?
+                    let tool_calls: [Call]?
+                }
+                let delta: Delta?
+                let finish_reason: String?
+            }
             let choices: [Choice]?
-            let error: ErrorBody.Inner?
         }
-        guard let chunk = try? JSONDecoder().decode(Chunk.self, from: Data(payload.utf8)) else { return nil }
-        return chunk.choices?.first?.delta?.content
+        guard let chunk = try? JSONDecoder().decode(Chunk.self, from: Data(payload.utf8)),
+              let choice = chunk.choices?.first else { return [] }
+        var events: [StreamEvent] = []
+        if let text = choice.delta?.content, !text.isEmpty { events.append(.text(text)) }
+        for (n, call) in (choice.delta?.tool_calls ?? []).enumerated() {
+            events.append(.toolCall(index: call.index ?? n, id: call.id, name: call.function?.name,
+                                    arguments: call.function?.arguments ?? ""))
+        }
+        if let reason = choice.finish_reason { events.append(.finish(reason: reason)) }
+        return events
     }
 
     private struct ErrorBody: Decodable {

@@ -17,8 +17,15 @@ final class ChatStore {
     }
 
     private init() {
-        if let data = try? Data(contentsOf: Self.fileURL),
-           let decoded = try? JSONDecoder().decode([Chat].self, from: data) {
+        guard let data = try? Data(contentsOf: Self.fileURL) else { return }
+        guard let decoded = try? JSONDecoder().decode([Chat].self, from: data) else {
+            // Never overwrite chats that could not be read: keep a copy beside them.
+            let backup = Self.fileURL.deletingLastPathComponent()
+                .appending(path: "chats.unreadable-\(Int(Date.now.timeIntervalSince1970)).json")
+            try? FileManager.default.copyItem(at: Self.fileURL, to: backup)
+            return
+        }
+        do {
             chats = decoded.map { chat in
                 var chat = chat
                 for i in chat.messages.indices { chat.messages[i].isPartial = false }

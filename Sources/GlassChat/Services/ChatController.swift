@@ -15,9 +15,12 @@ final class ChatController {
 
     func isStreaming(_ id: Chat.ID) -> Bool { streaming.contains(id) }
 
-    func send(_ text: String, in id: Chat.ID) {
+    /// The most rounds of tool calls in one answer.
+    static let maxToolRounds = 20
+
+    func send(_ text: String, attachments: [Attachment] = [], in id: Chat.ID) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty, !isStreaming(id), let chat = store.chat(id) else { return }
+        guard !text.isEmpty || !attachments.isEmpty, !isStreaming(id), let chat = store.chat(id) else { return }
         guard let baseURL = settings.normalizedBaseURL else {
             errors[id] = APIError(status: nil, message: "The base URL is not valid. Open Settings to fix it.", url: nil)
             return
@@ -26,30 +29,85 @@ final class ChatController {
 
         let assistant = Message(role: .assistant, content: "", isPartial: true)
         store.update(id) { chat in
-            if chat.title == "New Chat" { chat.title = Self.title(from: text) }
-            chat.messages.append(Message(role: .user, content: text))
+            if chat.title == "New Chat" {
+                chat.title = Self.title(from: text.isEmpty ? attachments.map(\.name).joined(separator: ", ") : text)
+            }
+            chat.messages.append(Message(role: .user, content: text, attachments: attachments))
             chat.messages.append(assistant)
             chat.updatedAt = .now
         }
 
-        var turns: [ChatTurn] = []
         let prompt = (chat.systemPrompt ?? settings.systemPrompt).trimmingCharacters(in: .whitespacesAndNewlines)
-        if !prompt.isEmpty { turns.append(ChatTurn(role: "system", content: prompt)) }
-        turns += store.chat(id)!.messages
-            .filter { $0.id != assistant.id && !$0.content.isEmpty }
-            .map { ChatTurn(role: $0.role.rawValue, content: $0.content) }
+        var turns: [JSONValue] = prompt.isEmpty ? [] : [.object(["role": .string("system"), "content": .string(prompt)])]
+        for message in store.chat(id)!.messages where message.id != assistant.id {
+            turns += Self.turns(of: message)
+        }
 
         let client = OpenAIClient(baseURL: baseURL, token: settings.token)
         let model = chat.model.isEmpty ? settings.defaultModel : chat.model
+        let functions = MCPManager.shared.functions(disabled: chat.disabledServers)
+        let tools = functions.keys.sorted().compactMap { functions[$0]?.definition }
         streaming.insert(id)
         tasks[id] = Task {
             do {
-                for try await delta in client.streamChat(model: model, messages: turns) {
-                    store.update(id, save: false) { chat in
-                        if let i = chat.messages.lastIndex(where: { $0.id == assistant.id }) {
-                            chat.messages[i].content += delta
+                for _ in 0..<Self.maxToolRounds {
+                    var calls: [Int: ToolCall] = [:]
+                    for try await event in client.streamChat(model: model, messages: turns, tools: tools) {
+                        switch event {
+                        case .text(let delta):
+                            edit(id, assistant.id) { $0.content += delta }
+                        case .toolCall(let index, let callID, let name, let arguments):
+                            var call = calls[index] ?? ToolCall(id: callID ?? "call_\(index)", name: "", arguments: "")
+                            if let callID, !callID.isEmpty { call.id = callID }
+                            if let name { call.name += name }
+                            call.arguments += arguments
+                            calls[index] = call
+                        case .finish:
+                            break
                         }
                     }
+                    let round = calls.keys.sorted().compactMap { calls[$0] }.filter { !$0.name.isEmpty }
+                    if round.isEmpty { break }
+                    try Task.checkCancellation()
+
+                    // The text so far belongs to this step; the next round writes a new one.
+                    let stepText = store.chat(id)?.messages.first { $0.id == assistant.id }?.content ?? ""
+                    let step = ToolStep(text: stepText, calls: round)
+                    edit(id, assistant.id) { $0.steps.append(step); $0.content = "" }
+                    turns.append(.object([
+                        "role": .string("assistant"),
+                        "content": stepText.isEmpty ? .null : .string(stepText),
+                        "tool_calls": .array(round.map(Self.toolCallJSON)),
+                    ]))
+
+                    // Calls of one round run together; each result shows as soon as it is there.
+                    let running = round.map { call in
+                        Task { () -> (String, Bool) in
+                            guard let function = functions[call.name] else { return ("Unknown tool \(call.name).", true) }
+                            let (text, isError) = await MCPManager.shared.call(function, arguments: call.arguments)
+                            self.edit(id, assistant.id) { message in
+                                guard let s = message.steps.firstIndex(where: { $0.id == step.id }),
+                                      let c = message.steps[s].calls.firstIndex(where: { $0.id == call.id }) else { return }
+                                message.steps[s].calls[c].result = text
+                                message.steps[s].calls[c].isError = isError
+                            }
+                            return (text, isError)
+                        }
+                    }
+                    var results: [String: (String, Bool)] = [:]
+                    try await withTaskCancellationHandler {
+                        for (call, task) in zip(round, running) { results[call.id] = await task.value }
+                    } onCancel: {
+                        for task in running { task.cancel() }
+                    }
+                    for call in round {
+                        turns.append(.object([
+                            "role": .string("tool"),
+                            "tool_call_id": .string(call.id),
+                            "content": .string(results[call.id]?.0 ?? "No result."),
+                        ]))
+                    }
+                    try Task.checkCancellation()
                 }
             } catch is CancellationError {
             } catch let error as URLError where error.code == .cancelled {
@@ -60,6 +118,51 @@ final class ChatController {
             }
             finish(id, assistant: assistant.id)
         }
+    }
+
+    private func edit(_ id: Chat.ID, _ messageID: Message.ID, _ change: (inout Message) -> Void) {
+        store.update(id, save: false) { chat in
+            if let i = chat.messages.lastIndex(where: { $0.id == messageID }) { change(&chat.messages[i]) }
+        }
+    }
+
+    /// A stored message as Chat Completions messages (an answer with tools is several).
+    private static func turns(of message: Message) -> [JSONValue] {
+        switch message.role {
+        case .user:
+            guard !message.attachments.isEmpty else {
+                return [.object(["role": .string("user"), "content": .string(message.content)])]
+            }
+            var parts: [JSONValue] = message.content.isEmpty ? [] : [.object(["type": .string("text"), "text": .string(message.content)])]
+            parts += message.attachments.compactMap(AttachmentStore.contentPart)
+            return [.object(["role": .string("user"), "content": .array(parts)])]
+        case .assistant:
+            var result: [JSONValue] = []
+            for step in message.steps {
+                result.append(.object([
+                    "role": .string("assistant"),
+                    "content": step.text.isEmpty ? .null : .string(step.text),
+                    "tool_calls": .array(step.calls.map(toolCallJSON)),
+                ]))
+                for call in step.calls {
+                    result.append(.object([
+                        "role": .string("tool"), "tool_call_id": .string(call.id),
+                        "content": .string(call.result ?? "No result."),
+                    ]))
+                }
+            }
+            if !message.content.isEmpty {
+                result.append(.object(["role": .string("assistant"), "content": .string(message.content)]))
+            }
+            return result
+        }
+    }
+
+    private static func toolCallJSON(_ call: ToolCall) -> JSONValue {
+        .object([
+            "id": .string(call.id), "type": .string("function"),
+            "function": .object(["name": .string(call.name), "arguments": .string(call.arguments.isEmpty ? "{}" : call.arguments)]),
+        ])
     }
 
     func stop(_ id: Chat.ID) {
@@ -75,7 +178,7 @@ final class ChatController {
                 chat.messages.removeSubrange(i...)
             }
         }
-        send(last.content, in: id)
+        send(last.content, attachments: last.attachments, in: id)
     }
 
     func delete(_ id: Chat.ID) {
@@ -91,10 +194,17 @@ final class ChatController {
         tasks[id] = nil
         store.update(id) { chat in
             guard let i = chat.messages.lastIndex(where: { $0.id == assistant }) else { return }
-            if chat.messages[i].content.isEmpty {
+            if chat.messages[i].content.isEmpty && chat.messages[i].steps.isEmpty {
                 chat.messages.remove(at: i)
             } else {
                 chat.messages[i].isPartial = false
+                // A call that never answered (stopped) says so.
+                for s in chat.messages[i].steps.indices {
+                    for c in chat.messages[i].steps[s].calls.indices where chat.messages[i].steps[s].calls[c].result == nil {
+                        chat.messages[i].steps[s].calls[c].result = "Stopped."
+                        chat.messages[i].steps[s].calls[c].isError = true
+                    }
+                }
             }
             chat.updatedAt = .now
         }

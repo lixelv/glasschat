@@ -5,6 +5,9 @@ struct ChatView: View {
 
     @Environment(ChatController.self) private var controller
     @State private var draft = ""
+    @State private var attachments: [Attachment] = []
+    @State private var dropping = false
+    @State private var composerHeight: CGFloat = 46
     @State private var showPrompt = false
     @State private var viewportHeight: CGFloat = 0
     private static let bottomID = "bottom"
@@ -59,19 +62,37 @@ struct ChatView: View {
                                 retry: { controller.retry(chatID) },
                                 dismiss: { controller.errors[chatID] = nil })
                 }
-                HStack {
-                    ModelPicker(chatID: chatID)
-                    Spacer()
+                if !dropping {
+                    HStack {
+                        ModelPicker(chatID: chatID)
+                        Spacer()
+                    }
+                    .transition(.opacity)
                 }
-                Composer(text: $draft,
+                Composer(chatID: chatID,
+                         text: $draft,
+                         attachments: $attachments,
+                         isDropTarget: dropping,
+                         // Twice as tall, taking in the model picker's row (its 28 pt and the 10 pt gap).
+                         dropHeight: composerHeight * 2 + 38,
                          isStreaming: controller.isStreaming(chatID),
                          send: send,
                          stop: { controller.stop(chatID) })
+                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { height in
+                        if !dropping { composerHeight = height }
+                    }
             }
             // A little wider than the column of messages.
             .frame(maxWidth: 820)
             .padding(.horizontal, 24)
             .padding(.bottom, 16)
+        }
+        .dropDestination(for: URL.self) { urls, _ in
+            let imported = urls.filter(\.isFileURL).compactMap { try? AttachmentStore.importFile(at: $0) }
+            withAnimation(.snappy) { attachments += imported }
+            return !imported.isEmpty
+        } isTargeted: { targeted in
+            withAnimation(.spring(duration: 0.3)) { dropping = targeted }
         }
         .navigationTitle("")
         .toolbar(removing: .title)
@@ -91,9 +112,11 @@ struct ChatView: View {
 
     private func send() {
         let text = draft
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachments.isEmpty else { return }
+        let files = attachments
         draft = ""
-        controller.send(text, in: chatID)
+        attachments = []
+        controller.send(text, attachments: files, in: chatID)
     }
 }
 

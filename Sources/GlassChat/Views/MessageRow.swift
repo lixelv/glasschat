@@ -11,19 +11,31 @@ struct MessageRow: View {
         case .user:
             HStack {
                 Spacer(minLength: 80)
-                Text(message.content)
-                    .font(.body)
-                    .textSelection(.enabled)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 10)
-                    .glassEffect(.regular.tint(.accentColor.opacity(0.22)), in: .rect(cornerRadius: 20))
-                    .frame(maxWidth: 560, alignment: .trailing)
+                VStack(alignment: .trailing, spacing: 6) {
+                    if !message.attachments.isEmpty {
+                        MessageAttachments(attachments: message.attachments)
+                    }
+                    if !message.content.isEmpty {
+                        Text(message.content)
+                            .font(.body)
+                            .textSelection(.enabled)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 10)
+                            .glassEffect(.regular.tint(.accentColor.opacity(0.22)), in: .rect(cornerRadius: 20))
+                    }
+                }
+                .frame(maxWidth: 560, alignment: .trailing)
             }
         case .assistant:
             VStack(alignment: .leading, spacing: 6) {
+                ForEach(message.steps) { step in
+                    if !step.text.isEmpty { MarkdownMessage(text: step.text) }
+                    ForEach(step.calls) { ToolCallCard(call: $0) }
+                }
                 if message.isPartial && message.content.isEmpty {
-                    TypingIndicator()
-                } else {
+                    // Waiting for the model (also after the tools of a step have answered).
+                    if message.steps.last?.calls.allSatisfy({ $0.result != nil }) ?? true { TypingIndicator() }
+                } else if !message.content.isEmpty {
                     MarkdownMessage(text: message.content)
                 }
                 if !message.isPartial {
@@ -43,7 +55,8 @@ struct MessageRow: View {
 
     private func copy() {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(message.content, forType: .string)
+        let text = (message.steps.map(\.text) + [message.content]).filter { !$0.isEmpty }.joined(separator: "\n\n")
+        NSPasteboard.general.setString(text, forType: .string)
         copied = true
         Task {
             try? await Task.sleep(for: .seconds(1.5))
