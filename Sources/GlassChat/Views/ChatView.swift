@@ -30,6 +30,9 @@ struct ChatView: View {
         }
         .defaultScrollAnchor(.bottom)
         .scrollContentBackground(.hidden)
+        // An empty chat has nothing to scroll: no hover-revealed edge band behind the greeting.
+        .scrollDisabled(messages.isEmpty)
+        .scrollEdgeEffectStyle(.soft, for: .bottom)
         .overlay {
             if messages.isEmpty { EmptyChat(model: chat.map { $0.model.isEmpty ? AppSettings.shared.defaultModel : $0.model } ?? "") }
         }
