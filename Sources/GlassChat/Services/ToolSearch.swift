@@ -5,7 +5,7 @@ import Foundation
 /// ranks them in `choice` mode, the options being the function names; without one, words are matched.
 /// The best `decisionTopN` are offered to the model for the rest of the answer.
 enum ToolSearch {
-    static let description = "Find tools by what they should do (e.g. \"show a notification\", \"read a file\"). Tools that are switched off can only be used after they are found here; the found ones are offered from your next step on. Search when no tool you have fits."
+    static let description = "Find tools by what they should do, written in English (e.g. \"show a notification\", \"call a model\", \"list agents\"); a tool's exact name works too. Tools that are switched off can only be used after they are found here; the found ones are offered from your next step on. Search when no tool you have fits; when nothing matches, you get the list of all tools to pick names from."
 
     static let parameters: JSONValue = .object([
         "type": .string("object"),
@@ -27,6 +27,10 @@ enum ToolSearch {
         let limit = max(1, settings.decisionTopN)
         let model = settings.decisionModel.trimmingCharacters(in: .whitespaces)
         guard !candidates.isEmpty else { return [] }
+        // An exact function name (or the tool part of it) is found whatever ranks it.
+        let wanted = query.trimmingCharacters(in: .whitespaces).lowercased()
+        let exact = candidates.keys.filter { $0.lowercased() == wanted || $0.lowercased().hasSuffix("__" + wanted) }
+        if !exact.isEmpty { return exact.sorted().map { Hit(name: $0, probability: nil) } }
         if model.isEmpty { return Array(wordSearch(query, candidates).prefix(limit)) }
         guard let connection = settings.decisionConnection else {
             throw MCPError(message: "The decision model's base URL is not valid (Settings → Connection).")

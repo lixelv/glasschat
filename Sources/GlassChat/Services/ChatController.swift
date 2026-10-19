@@ -160,7 +160,17 @@ final class ChatController {
         let candidates = all.filter { $0.value.group != nil }.mapValues(\.summary)
         do {
             let hits = try await ToolSearch.search(query, among: candidates)
-            guard !hits.isEmpty else { return ("No tool fits \"\(query)\".", false) }
+            guard !hits.isEmpty else {
+                // Nothing matched (words in another language than the descriptions): every tool by name,
+                // grouped by server, so the model can search for one by its exact name.
+                var groups: [String: [String]] = [:]
+                for (name, summary) in candidates {
+                    groups[String(summary.prefix { $0 != ":" }), default: []].append(name)
+                }
+                let list = groups.keys.sorted().map { "\($0): \(groups[$0]!.sorted().joined(separator: ", "))" }
+                return ("No tool matched \"\(query)\" by its words. All tools, by server (search again with an exact name, or in English):\n"
+                        + list.joined(separator: "\n"), false)
+            }
             let active = MCPManager.shared.functions(disabled: AppSettings.shared.disabledTools, found: found.names)
             var lines: [String] = []
             for hit in hits {
