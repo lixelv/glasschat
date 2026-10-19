@@ -52,7 +52,19 @@ private struct DecisionSettings: View {
     var body: some View {
         Section {
             TextField("Decision Model", text: $settings.decisionModel, prompt: Text("typesafe/jev-1.14"))
-            Stepper("Tools per search: \(settings.decisionTopN)", value: $settings.decisionTopN, in: 1...12)
+            // A field to type into, and the arrows beside it.
+            LabeledContent("Tools per search") {
+                HStack(spacing: 4) {
+                    TextField("", value: $settings.decisionTopN, format: .number)
+                        .multilineTextAlignment(.trailing)
+                        .frame(width: 44)
+                        .onChange(of: settings.decisionTopN) { _, n in
+                            if n < 1 { settings.decisionTopN = 1 } else if n > 50 { settings.decisionTopN = 50 }
+                        }
+                    Stepper("", value: $settings.decisionTopN, in: 1...50)
+                        .labelsHidden()
+                }
+            }
             HStack {
                 Text(settings.decisionBaseURL.isEmpty && settings.decisionToken.isEmpty
                      ? "Same base URL and token as the chat" : "Own base URL or token")
