@@ -2,3 +2,4 @@
 build/
 *.app
 .superpowers/
+.DS_STore

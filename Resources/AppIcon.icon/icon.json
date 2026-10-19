@@ -30,8 +30,16 @@
             }
           ],
           "glass" : true,
+          "hidden" : false,
           "image-name" : "front.svg",
-          "name" : "front"
+          "name" : "front",
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              -12,
+              -65
+            ]
+          }
         }
       ],
       "shadow" : {
@@ -62,7 +70,14 @@
           "glass" : true,
           "image-name" : "back.svg",
           "name" : "back",
-          "opacity" : 0.45
+          "opacity" : 0.45,
+          "position" : {
+            "scale" : 1,
+            "translation-in-points" : [
+              16,
+              -29.294541996960675
+            ]
+          }
         }
       ],
       "shadow" : {
