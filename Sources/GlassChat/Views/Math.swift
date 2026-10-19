@@ -1,10 +1,9 @@
 import AppKit
 import MarkdownUI
-import SwiftMath
 import SwiftUI
 
 /// LaTeX in answers. Formulas are turned into markdown images with a `glasschat-math:` URL before
-/// MarkdownUI parses the text; the image providers below render them with SwiftMath.
+/// MarkdownUI parses the text; the image providers below render them with KaTeX (`MathRenderer`).
 enum MathMarkdown {
     static let scheme = "glasschat-math"
 
@@ -141,18 +140,8 @@ enum MathMarkdown {
         return (tex, parts[0] == "display")
     }
 
-    /// Renders with the label colour of the current appearance; nil when SwiftMath cannot parse it.
-    @MainActor
-    static func render(_ tex: String, display: Bool, fontSize: CGFloat) -> NSImage? {
-        var image: NSImage?
-        NSApp.effectiveAppearance.performAsCurrentDrawingAppearance {
-            let color = NSColor(cgColor: NSColor.labelColor.cgColor) ?? .labelColor
-            var math = MathImage(latex: tex, fontSize: fontSize, textColor: color,
-                                 labelMode: display ? .display : .text, textAlignment: .left)
-            let (error, rendered, _) = math.asImage()
-            if error == nil { image = rendered }
-        }
-        return image
+    @MainActor static var isDark: Bool {
+        NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
     }
 }
 
@@ -160,8 +149,11 @@ enum MathMarkdown {
 struct MathInlineImageProvider: InlineImageProvider {
     func image(with url: URL, label: String) async throws -> Image {
         guard let (tex, _) = MathMarkdown.decode(url) else { return try await DefaultInlineImageProvider.default.image(with: url, label: label) }
-        if let image = await MathMarkdown.render(tex, display: false, fontSize: NSFont.systemFontSize + 2) {
-            return Image(nsImage: image)
+        if let formula = await MathRenderer.shared.image(tex: tex, display: false, fontSize: (NSFont.systemFontSize + 1) / 1.21 * 1.05,
+                                                        dark: await MathMarkdown.isDark) {
+            // The formula's baseline on the text's: text runs through its middle, not under it.
+            InlineImageMetrics.shared.setBaselineOffset(-formula.depth, for: url.absoluteString)
+            return Image(nsImage: formula.image)
         }
         throw URLError(.cannotDecodeContentData)
     }
@@ -181,10 +173,10 @@ struct MathImageProvider: ImageProvider {
 private struct DisplayFormula: View {
     let tex: String
     @Environment(\.colorScheme) private var colorScheme
+    @State private var image: NSImage?
+    @State private var failed = false
 
     var body: some View {
-        // colorScheme in the identity re-renders the image in the new label colour.
-        let image = MathMarkdown.render(tex, display: true, fontSize: NSFont.systemFontSize + 5)
         Group {
             if let image {
                 // Centred; a formula wider than the column is scaled down to fit.
@@ -194,13 +186,20 @@ private struct DisplayFormula: View {
                     .frame(maxWidth: image.size.width)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 4)
-            } else {
+            } else if failed {
                 Text(tex)
                     .font(.system(.callout, design: .monospaced))
                     .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            } else {
+                Color.clear.frame(height: 28)
             }
         }
-        .id(colorScheme)
-        .textSelection(.disabled)
+        .task(id: "\(colorScheme)|\(tex)") {
+            let rendered = await MathRenderer.shared.image(tex: tex, display: true, fontSize: (NSFont.systemFontSize + 1) / 1.21 * 1.2,
+                                                           dark: colorScheme == .dark)
+            image = rendered?.image
+            failed = rendered == nil
+        }
     }
 }

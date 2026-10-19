@@ -1,0 +1,62 @@
+<!doctype html>
+<html><head><meta charset="utf-8">
+<link rel="stylesheet" href="katex.min.css">
+<style>
+  html, body { margin: 0; padding: 0; background: transparent; }
+  body { font: -apple-system-body; -webkit-font-smoothing: antialiased; }
+  #out { display: inline-block; width: max-content; padding: 2px 1px; white-space: nowrap; }
+  #out .katex-display { margin: 0; }
+</style>
+<script src="katex.min.js"></script>
+</head><body><span id="out"></span>
+<script>
+const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+// Fonts load only when a glyph needs them; a formula printed before that comes out blank.
+// Warm up with every face in use, then each render also waits while any font is still loading.
+const fontsLoaded = (async () => {
+  const warm = document.createElement('div');
+  warm.style.cssText = 'position:absolute;left:-9999px;top:0';
+  document.body.appendChild(warm);
+  katex.render(String.raw`\mathbb{Z}\mathcal{A}\mathfrak{g}\mathscr{L}\mathsf{s}\mathtt{t}\textbf{b}\textit{i}
+    \sum\int\prod\left(\frac{a}{b}\right)\Bigg(\bigg(\Big(\big(x\big)\Big)\bigg)\Bigg)\boxed{x}\text{ж}`, warm,
+    { displayMode: true, throwOnError: false });
+  warm.getBoundingClientRect(); // layout: this is what starts the font loads
+  await sleep(30);
+  for (let i = 0; i < 100 && document.fonts.status === 'loading'; i++) await sleep(30);
+})();
+
+// Renders one formula and returns its size, or {error} when KaTeX refuses it.
+async function render(tex, display, color, size) {
+  const out = document.getElementById('out');
+  out.style.color = color;
+  out.style.fontSize = size + 'px';
+  await fontsLoaded;
+  try {
+    katex.render(tex, out, { displayMode: display, throwOnError: true, strict: 'ignore', trust: false, output: 'html' });
+  } catch (e) {
+    return { error: String(e.message || e) };
+  }
+  // KaTeX fonts load lazily (\mathbb needs KaTeX_AMS): measured or printed before that, glyphs are missing.
+  out.getBoundingClientRect(); // layout: starts any font this formula still needs
+  for (let i = 0; i < 100 && document.fonts.status === 'loading'; i++) await sleep(30);
+  // A zero-size mark on the baseline: what is below it is the formula's depth.
+  const mark = document.createElement('span');
+  mark.style.cssText = 'display:inline-block;width:0;height:0;vertical-align:baseline';
+  out.appendChild(mark);
+  const baseline = mark.getBoundingClientRect().top;
+  out.removeChild(mark);
+  // The visible formula: the .base runs of .katex-html (a fraction's denominator and a \boxed frame
+  // are inside them; KaTeX's invisible struts and vlist helpers are not counted).
+  const bases = out.querySelectorAll('.katex-html .base');
+  let right = 0, bottom = 0;
+  for (const el of (bases.length ? bases : [out])) {
+    const r = el.getBoundingClientRect();
+    right = Math.max(right, r.right);
+    bottom = Math.max(bottom, r.bottom);
+  }
+  right += 1; bottom += 2;
+  const height = Math.ceil(bottom);
+  return { width: Math.ceil(right), height: height, depth: Math.max(0, height - baseline) };
+}
+</script></body></html>

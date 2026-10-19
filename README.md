@@ -3,7 +3,7 @@
 A native macOS chat client for any OpenAI-compatible API (OpenAI, OpenRouter, Ollama, LM Studio, …),
 built with SwiftUI and Liquid Glass. Chats live in the sidebar, the model is switched from the chat
 window, answers stream in and are rendered as markdown with highlighted code and LaTeX
-(`$..$`, `\(..\)`, `$$..$$`, `\[..\]`, drawn by SwiftMath).
+(`$..$`, `\(..\)`, `$$..$$`, `\[..\]`, drawn by a bundled KaTeX 0.16.11 in a hidden web view, offline).
 
 Requires macOS 26 or later.
 
@@ -22,6 +22,8 @@ Notes:
   plugins that ship only with Xcode. Chats are therefore kept as JSON in
   `~/Library/Application Support/GlassChat/chats.json`.
 - `Vendor/HighlightSwift` is HighlightSwift 1.1.0 with `@Entry` and `#Preview` removed for the same reason.
+- `Vendor/swift-markdown-ui` is MarkdownUI 2.4.1 with two patches: an inline image can be moved off the baseline
+  (`InlineImageMetrics`, so a formula's baseline meets the text's) and one failing inline image no longer drops the others.
 - `scripts/make-icon.swift <dir>.iconset` renders the icon; `iconutil -c icns` turns it into `Resources/AppIcon.icns`.
 
 ## Settings

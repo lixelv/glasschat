@@ -68,7 +68,8 @@ struct ChatView: View {
                          send: send,
                          stop: { controller.stop(chatID) })
             }
-            .frame(maxWidth: 760)
+            // A little wider than the column of messages.
+            .frame(maxWidth: 820)
             .padding(.horizontal, 24)
             .padding(.bottom, 16)
         }
