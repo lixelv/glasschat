@@ -10,7 +10,9 @@ enum MathMarkdown {
     /// KaTeX draws at 1.21em of this; 1.05 sets the formulas to the size of the body text.
     @MainActor static var inlineFontSize: CGFloat { (NSFont.systemFontSize + 1) / 1.21 * 1.05 }
     /// A display formula ($$) is this much larger than an inline one ($); chosen by the user.
-    static let displayScale: CGFloat = 1.41
+    /// Space above and below a display formula: 1.5 times the 14 pt it had (a paragraph's 10 pt margin + 4 pt padding).
+    static let displayGap: CGFloat = 14 * 1.5 - 10
+    static let displayScale: CGFloat = 1.21
 
     /// Rewrites `$$..$$`, `\[..\]` (display) and `$..$`, `\(..\)` (inline) outside code.
     static func prepare(_ markdown: String) -> String {
@@ -190,7 +192,7 @@ private struct DisplayFormula: View {
                     .scaledToFit()
                     .frame(maxWidth: image.size.width)
                     .frame(maxWidth: .infinity)
-                    .padding(.vertical, 4)
+                    .padding(.vertical, MathMarkdown.displayGap)
             } else if failed {
                 Text(tex)
                     .font(.system(.callout, design: .monospaced))
