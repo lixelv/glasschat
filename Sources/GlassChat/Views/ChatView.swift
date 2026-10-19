@@ -76,10 +76,19 @@ struct ChatView: View {
 private struct EmptyChat: View {
     let model: String
 
+    private static let symbols = [
+        "sparkles", "wand.and.stars", "lightbulb.max", "brain.head.profile", "atom",
+        "bubble.left.and.text.bubble.right", "text.bubble", "globe.europe.africa",
+        "books.vertical", "paintpalette", "leaf", "moon.stars", "graduationcap", "puzzlepiece.extension",
+    ]
+    /// Picked once per opened chat.
+    @State private var symbol = symbols.randomElement()!
+
     var body: some View {
         VStack(spacing: 8) {
-            Image(systemName: "sparkles")
+            Image(systemName: symbol)
                 .font(.system(size: 34, weight: .light))
+                .symbolRenderingMode(.hierarchical)
                 .foregroundStyle(.secondary)
                 .padding(.bottom, 4)
             Text("What can I help with?")

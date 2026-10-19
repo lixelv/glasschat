@@ -40,7 +40,7 @@ struct Composer: View {
             .padding(.leading, 18)
             .padding(.trailing, 6)
             .padding(.vertical, 6)
-            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 24))
+            .glassEffect(.regular, in: .rect(cornerRadius: 24))
         }
         .onAppear { focused = true }
     }
