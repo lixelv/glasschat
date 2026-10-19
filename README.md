@@ -125,6 +125,12 @@ scripts/bundle.sh --open
 
 The icon script expects Icon Composer at `/Applications/Icon Composer.app` and exports `AppIcon.icns`, `AppIcon-Light.png`, and `AppIcon-Dark.png` into `Resources`.
 
+### GitHub releases
+
+Publish a GitHub release with a tag such as `v1.0.0`; no manual file upload is needed. The **Build release** workflow checks out the latest `main` when the job starts, builds for Apple Silicon on macOS, and attaches the app ZIP, `SHA256SUMS.txt`, and `BUILD-INFO.txt` to that release.
+
+The build uses the runner's Xcode SDK. Its source commit is recorded in `BUILD-INFO.txt` and the app's Info.plist, since `main` may have advanced beyond the release tag. Rerunning the workflow rebuilds the then-current `main` and replaces matching assets. Release builds are ad hoc signed and are not notarized by Apple.
+
 ## Development notes
 
 - The build targets the macOS 26.5 SDK to avoid SwiftUI macro plugin requirements encountered with the macOS 27 SDK in the Command Line Tools setup.

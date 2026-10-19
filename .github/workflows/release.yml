@@ -1,0 +1,79 @@
+name: Build release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.event.release.id }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build macOS app from main
+    runs-on: macos-26
+    timeout-minutes: 30
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+    steps:
+      - name: Check out latest main
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Build and package
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+            echo 'Use a release tag such as v1.0.0.' >&2
+            exit 1
+          }
+          test "$(uname -m)" = arm64
+          xcodebuild -version
+          swift --version
+          SDK="$(xcrun --sdk macosx --show-sdk-path)"
+          # Xcode's resource accessors resolve bundles in Contents/Resources.
+          swift build -c release --build-system xcode --sdk "$SDK"
+          BIN="$(swift build -c release --build-system xcode --sdk "$SDK" --show-bin-path)"
+          APP="build/GlassChat.app"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          cp "$BIN/GlassChat" "$APP/Contents/MacOS/GlassChat"
+          cp Resources/Info.plist "$APP/Contents/Info.plist"
+          cp Resources/AppIcon.icns Resources/AppIcon-Light.png Resources/AppIcon-Dark.png "$APP/Contents/Resources/"
+          shopt -s nullglob
+          for bundle in "$BIN"/*.bundle; do
+            cp -R "$bundle" "$APP/Contents/Resources/"
+          done
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${RELEASE_TAG#v}" "$APP/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion $GITHUB_RUN_NUMBER" "$APP/Contents/Info.plist"
+          SOURCE_SHA="$(git rev-parse HEAD)"
+          /usr/libexec/PlistBuddy -c "Add :GlassChatSourceCommit string $SOURCE_SHA" "$APP/Contents/Info.plist"
+          xattr -cr "$APP"
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+          plutil -lint "$APP/Contents/Info.plist"
+          file "$APP/Contents/MacOS/GlassChat"
+          mkdir -p build/release
+          ARCHIVE="GlassChat-${RELEASE_TAG}-macOS-arm64.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "build/release/$ARCHIVE"
+          (cd build/release && shasum -a 256 "$ARCHIVE" > SHA256SUMS.txt)
+          {
+            echo "Release: $RELEASE_TAG"
+            echo "Source branch: main"
+            echo "Source commit: $SOURCE_SHA"
+            echo "Architecture: arm64 (Apple Silicon)"
+            echo "Minimum macOS: 26.0"
+            echo "Signing: ad hoc; not notarized"
+          } > build/release/BUILD-INFO.txt
+          cat build/release/BUILD-INFO.txt >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Attach build to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release upload "$RELEASE_TAG" build/release/* --clobber
