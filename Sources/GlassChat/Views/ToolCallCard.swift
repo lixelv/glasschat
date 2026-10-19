@@ -42,10 +42,12 @@ struct ToolCallCard: View {
                     if let result = call.result { section(call.isError ? "Error" : "Result", Self.pretty(result)) }
                 }
                 .padding([.horizontal, .bottom], 12)
-                .transition(.opacity)
+                .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
         .background(Color.secondary.opacity(0.08), in: .rect(cornerRadius: 12))
+        // While the card folds, its details are cut by its edge instead of spilling over the next card.
+        .clipShape(.rect(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(Color.secondary.opacity(0.15)))
         .frame(maxWidth: 560, alignment: .leading)
     }
