@@ -56,12 +56,7 @@ struct ToolCallCard: View {
     private func section(_ title: String, _ text: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.caption.weight(.medium)).foregroundStyle(.secondary)
-            // Long results are cut at 16 lines; the text stays selectable.
-            Text(text.isEmpty ? "—" : text)
-                .font(.system(.caption, design: .monospaced))
-                .lineLimit(16)
-                .textSelection(.enabled)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            ClippedOutput(text: text.isEmpty ? "—" : text)
         }
     }
 
@@ -140,5 +135,39 @@ struct ToolCallsGroup: View {
             }
         }
         .clipped()
+    }
+}
+
+/// A tool's arguments or result: the first lines, and "Show more" for the whole text.
+private struct ClippedOutput: View {
+    let text: String
+    @State private var expanded = false
+
+    static let lines = 12
+    static let characters = 1_200
+
+    private var preview: String? {
+        let lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+        guard lines.count > Self.lines || text.count > Self.characters else { return nil }
+        var cut = lines.prefix(Self.lines).joined(separator: "\n")
+        if cut.count > Self.characters { cut = String(cut.prefix(Self.characters)) }
+        return cut + "…"
+    }
+
+    var body: some View {
+        let preview = preview
+        VStack(alignment: .leading, spacing: 6) {
+            Text(expanded || preview == nil ? text : preview!)
+                .font(.system(.caption, design: .monospaced))
+                .textSelection(.enabled)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            if preview != nil {
+                Button(expanded ? "Show less" : "Show more (\(text.split(separator: "\n", omittingEmptySubsequences: false).count) lines)") {
+                    withAnimation(.snappy) { expanded.toggle() }
+                }
+                .buttonStyle(.link)
+                .font(.caption)
+            }
+        }
     }
 }

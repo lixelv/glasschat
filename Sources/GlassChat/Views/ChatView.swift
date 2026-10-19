@@ -36,7 +36,7 @@ struct ChatView: View {
                         // and the list jumped.
                         VStack(spacing: 18) {
                             ForEach(messages) { message in
-                                MessageRow(message: message)
+                                MessageRow(message: message, chatID: chatID)
                                     .id(message.id)
                             }
                             Color.clear.frame(height: 1).id(Self.bottomID)

@@ -261,6 +261,40 @@ final class ChatController {
         send(last.content, attachments: last.attachments, in: id)
     }
 
+    /// Restarts the conversation at a user message: it and everything after it are dropped,
+    /// and `text` (the edited or the same message) is sent in its place.
+    func resend(from messageID: Message.ID, text: String, attachments: [Attachment], in id: Chat.ID) {
+        if isStreaming(id) { stop(id) }
+        Task {
+            // Stopping saves the partial answer first; then the history is cut.
+            while isStreaming(id) { try? await Task.sleep(for: .milliseconds(30)) }
+            store.update(id) { chat in
+                if let i = chat.messages.firstIndex(where: { $0.id == messageID }) { chat.messages.removeSubrange(i...) }
+            }
+            errors[id] = nil
+            send(text, attachments: attachments, in: id)
+        }
+    }
+
+    /// A new chat holding the conversation up to and including a message; returns its id.
+    @discardableResult
+    func branch(_ id: Chat.ID, through messageID: Message.ID) -> Chat.ID? {
+        guard let chat = store.chat(id), let i = chat.messages.firstIndex(where: { $0.id == messageID }) else { return nil }
+        let copy = store.newChat(model: chat.model)
+        store.update(copy.id) { new in
+            new.title = chat.title + " (branch)"
+            new.systemPrompt = chat.systemPrompt
+            new.messages = chat.messages[...i].map { message in
+                var message = message
+                message.id = UUID()
+                message.isPartial = false
+                return message
+            }
+        }
+        NotificationCenter.default.post(name: .selectChat, object: copy.id)
+        return copy.id
+    }
+
     func delete(_ id: Chat.ID) {
         tasks[id]?.cancel()
         tasks[id] = nil

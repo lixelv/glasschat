@@ -3,8 +3,12 @@ import SwiftUI
 
 struct MessageRow: View {
     let message: Message
+    let chatID: Chat.ID
+    @Environment(ChatController.self) private var controller
     @State private var hovering = false
     @State private var copied = false
+    @State private var editing = false
+    @State private var draft = ""
 
     var body: some View {
         switch message.role {
@@ -15,17 +19,34 @@ struct MessageRow: View {
                     if !message.attachments.isEmpty {
                         MessageAttachments(attachments: message.attachments)
                     }
-                    if !message.content.isEmpty {
-                        Text(message.content)
-                            .font(.body)
-                            .textSelection(.enabled)
-                            .padding(.horizontal, 16)
-                            .padding(.vertical, 10)
-                            .glassEffect(.regular.tint(.accentColor.opacity(0.22)), in: .rect(cornerRadius: 20))
+                    if editing {
+                        editor
+                    } else {
+                        if !message.content.isEmpty {
+                            Text(message.content)
+                                .font(.body)
+                                .textSelection(.enabled)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                                .glassEffect(.regular.tint(.accentColor.opacity(0.22)), in: .rect(cornerRadius: 20))
+                        }
+                        HStack(spacing: 12) {
+                            action(copied ? "Copied" : "Copy", copied ? "checkmark" : "doc.on.doc", copy)
+                            action("Edit", "pencil") { draft = message.content; editing = true }
+                            action("Retry from Here", "arrow.clockwise") {
+                                controller.resend(from: message.id, text: message.content, attachments: message.attachments, in: chatID)
+                            }
+                            action("Branch from Here", "arrow.triangle.branch") { controller.branch(chatID, through: message.id) }
+                        }
+                        // Not 0: a fully transparent view leaves the accessibility tree (VoiceOver could not reach it).
+                        .opacity(hovering || copied ? 1 : 0.001)
                     }
                 }
-                .frame(maxWidth: 560, alignment: .trailing)
+                .frame(maxWidth: editing ? .infinity : 560, alignment: .trailing)
             }
+            .contentShape(.rect)
+            .onHover { hovering = $0 }
+            .contextMenu { menu }
         case .assistant:
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(message.steps) { step in
@@ -40,12 +61,12 @@ struct MessageRow: View {
                 }
                 if !message.isPartial {
                     HStack(spacing: 10) {
-                        Button(copied ? "Copied" : "Copy", systemImage: copied ? "checkmark" : "doc.on.doc", action: copy)
-                            .labelStyle(.iconOnly)
-                            .buttonStyle(.borderless)
-                            .foregroundStyle(.secondary)
-                            .help("Copy answer")
-                            .opacity(hovering || copied ? 1 : 0)
+                        HStack(spacing: 12) {
+                            action(copied ? "Copied" : "Copy", copied ? "checkmark" : "doc.on.doc", copy)
+                            action("Branch from Here", "arrow.triangle.branch") { controller.branch(chatID, through: message.id) }
+                        }
+                        // Not 0: a fully transparent view leaves the accessibility tree (VoiceOver could not reach it).
+                        .opacity(hovering || copied ? 1 : 0.001)
                         if let input = message.inputTokens, let output = message.outputTokens {
                             Text("\(input.formatted()) in · \(output.formatted()) out")
                                 .font(.caption.monospacedDigit())
@@ -60,6 +81,56 @@ struct MessageRow: View {
             .accessibilityElement(children: .contain)
             .contentShape(.rect)
             .onHover { hovering = $0 }
+            .contextMenu { menu }
+        }
+    }
+
+    /// The same actions on a right click.
+    @ViewBuilder private var menu: some View {
+        Button("Copy", systemImage: "doc.on.doc", action: copy)
+        if message.role == .user {
+            Button("Edit", systemImage: "pencil") { draft = message.content; editing = true }
+            Button("Retry from Here", systemImage: "arrow.clockwise") {
+                controller.resend(from: message.id, text: message.content, attachments: message.attachments, in: chatID)
+            }
+        }
+        Button("Branch from Here", systemImage: "arrow.triangle.branch") { controller.branch(chatID, through: message.id) }
+    }
+
+    /// An icon button of the row's hover bar; its name is the tooltip.
+    private func action(_ title: String, _ icon: String, _ run: @escaping () -> Void) -> some View {
+        Button(title, systemImage: icon, action: run)
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .help(title)
+    }
+
+    /// The message being edited: sending it restarts the conversation from here.
+    private var editor: some View {
+        VStack(alignment: .trailing, spacing: 8) {
+            TextEditor(text: $draft)
+                .font(.body)
+                .scrollContentBackground(.hidden)
+                .frame(minHeight: 60, maxHeight: 240)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(10)
+                .glassEffect(.regular.tint(.accentColor.opacity(0.22)), in: .rect(cornerRadius: 20))
+            HStack {
+                Text("The answers after this message are replaced.")
+                    .font(.caption)
+                    .foregroundStyle(Palette.secondaryText)
+                Spacer()
+                Button("Cancel") { editing = false }
+                    .keyboardShortcut(.cancelAction)
+                Button("Send") {
+                    editing = false
+                    controller.resend(from: message.id, text: draft, attachments: message.attachments, in: chatID)
+                }
+                .buttonStyle(.glassProminent)
+                .keyboardShortcut(.return, modifiers: .command)
+                .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && message.attachments.isEmpty)
+            }
         }
     }
 
