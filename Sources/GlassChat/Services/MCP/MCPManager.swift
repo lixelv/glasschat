@@ -300,45 +300,57 @@ final class MCPManager {
             case server(MCPServer.ID, tool: String)
             case registry(RegistryTool)
             case app(AppTool)
+            /// `search_tools`: always offered, never switched off.
+            case search
         }
 
         let definition: JSONValue
         let target: Target
+        /// The switch it belongs to: a server's name or `AppTool.key` (nil for the search).
+        let group: String?
+        /// "server: tool — description", what a search ranks it by.
+        let summary: String
     }
 
-    /// The key a chat switches the built-in registry tools off with.
-    static let registryKey = "__registry__"
     /// The prefix of the built-in functions (shown as "GlassChat" on their cards).
     static let registryPrefix = "glasschat"
+    static let searchName = registryPrefix + "__search_tools"
 
-    /// The built-in registry tools (unless switched off in the chat) and the tools of the connected servers
-    /// not switched off in it, keyed by the function name the model sees.
-    func functions(disabled: Set<String>) -> [String: Function] {
+    /// Every function there is: the App tools (with the registry), the tools of every connected server, and the search.
+    func allFunctions() -> [String: Function] {
         var result: [String: Function] = [:]
-        if !disabled.contains(AppTool.key) {
-            for tool in AppTool.allCases {
-                let name = Self.registryPrefix + "__" + tool.rawValue
-                result[name] = Function(definition: Self.function(name, tool.description, tool.parameters), target: .app(tool))
-            }
+        func add(_ name: String, _ description: String, _ parameters: JSONValue, _ target: Function.Target, group: String?, summary: String) {
+            result[name] = Function(definition: Self.function(name, description, parameters), target: target, group: group, summary: summary)
         }
-        if !disabled.contains(Self.registryKey) {
-            for tool in RegistryTool.allCases {
-                let name = Self.registryPrefix + "__" + tool.rawValue
-                result[name] = Function(definition: Self.function(name, tool.description, tool.parameters), target: .registry(tool))
-            }
+        add(Self.searchName, ToolSearch.description, ToolSearch.parameters, .search, group: nil, summary: "")
+        for tool in AppTool.allCases {
+            add(Self.registryPrefix + "__" + tool.rawValue, tool.description, tool.parameters, .app(tool),
+                group: AppTool.key, summary: "GlassChat: \(tool.rawValue) — \(tool.description)")
         }
-        for server in servers where server.enabled && !disabled.contains(server.id) && status[server.id] == .connected {
+        for tool in RegistryTool.allCases {
+            add(Self.registryPrefix + "__" + tool.rawValue, tool.description, tool.parameters, .registry(tool),
+                group: AppTool.key, summary: "GlassChat: \(tool.rawValue) — \(tool.description)")
+        }
+        for server in servers where server.enabled && status[server.id] == .connected {
             let prefix = Self.slug(server.name, limit: 20)
             for tool in tools[server.id] ?? [] {
                 var name = prefix + "__" + Self.slug(tool.name, limit: 60 - prefix.count)
                 var n = 2
                 while result[name] != nil { name = String(name.prefix(60)) + "\(n)"; n += 1 }
                 let description = tool.description.isEmpty ? "\(tool.name) (\(server.name))" : tool.description
-                result[name] = Function(definition: Self.function(name, description, tool.inputSchema),
-                                        target: .server(server.id, tool: tool.name))
+                add(name, description, tool.inputSchema, .server(server.id, tool: tool.name),
+                    group: server.id, summary: "\(server.name): \(tool.name) — \(tool.description)")
             }
         }
         return result
+    }
+
+    /// What the model is offered: the search, the groups not switched off, and the tools a search found.
+    func functions(disabled: Set<String>, found: Set<String> = []) -> [String: Function] {
+        allFunctions().filter { name, function in
+            guard let group = function.group else { return true }
+            return !disabled.contains(group) || found.contains(name)
+        }
     }
 
     private static func function(_ name: String, _ description: String, _ parameters: JSONValue) -> JSONValue {
@@ -356,8 +368,8 @@ final class MCPManager {
         case .registry(let tool):
             do { return (try registry(tool, args), false) }
             catch { return (error.localizedDescription, true) }
-        case .app:
-            return ("App tools run in the chat controller.", true)
+        case .app, .search:
+            return ("This tool runs in the chat controller.", true)
         case .server(let id, let tool):
             guard let transport = transports[id] else { return ("The MCP server of this tool is not connected.", true) }
             do {
@@ -388,11 +400,9 @@ final class MCPManager {
         return servers.first { Self.slug($0.name, limit: 20) == slug }?.name ?? slug
     }
 
+    /// How many tools the model is offered (the search included).
     func activeToolCount(disabled: Set<String>) -> Int {
-        let registry = disabled.contains(Self.registryKey) ? 0 : RegistryTool.allCases.count
-        let app = disabled.contains(AppTool.key) ? 0 : AppTool.allCases.count
-        return registry + app + servers.filter { $0.enabled && !disabled.contains($0.id) && status[$0.id] == .connected }
-            .reduce(0) { $0 + (tools[$1.id]?.count ?? 0) }
+        functions(disabled: disabled).count
     }
 
     /// Letters, digits, `_` and `-` only: what function names may hold.

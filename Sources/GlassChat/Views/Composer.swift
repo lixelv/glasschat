@@ -118,19 +118,19 @@ private struct ToolsButton: View {
     @State private var open = false
     @Environment(\.openSettings) private var openSettings
     private var mcp = MCPManager.shared
-    private var store = ChatStore.shared
+    private var settings = AppSettings.shared
 
     init(chatID: Chat.ID) { self.chatID = chatID }
 
     private func binding(_ key: String) -> Binding<Bool> {
         Binding(
-            get: { !(store.chat(chatID)?.disabledServers.contains(key) ?? false) },
-            set: { on in store.update(chatID) { if on { $0.disabledServers.remove(key) } else { $0.disabledServers.insert(key) } } }
+            get: { !settings.disabledTools.contains(key) },
+            set: { on in if on { settings.disabledTools.remove(key) } else { settings.disabledTools.insert(key) } }
         )
     }
 
     var body: some View {
-        let disabled = store.chat(chatID)?.disabledServers ?? []
+        let disabled = settings.disabledTools
         let count = mcp.activeToolCount(disabled: disabled)
         Button { open.toggle() } label: {
             HStack(spacing: 3) {
@@ -141,23 +141,18 @@ private struct ToolsButton: View {
             .foregroundStyle(count > 0 ? AnyShapeStyle(.tint) : AnyShapeStyle(.secondary))
         }
         .buttonStyle(.plain)
-        .help("Tools of this chat")
+        .help("Tools")
         .popover(isPresented: $open, arrowEdge: .top) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Tools").font(.headline)
+                Text("Switches are the same in every chat. Tools switched off can still be found by the model's tool search.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
                 Toggle(isOn: binding(AppTool.key)) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text("App")
-                        Text("Built in: notifications, alerts, chats, models, MCP on/off")
-                            .font(.caption).foregroundStyle(.secondary)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .toggleStyle(.switch)
-                Toggle(isOn: binding(MCPManager.registryKey)) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("MCP Registry")
-                        Text("Built in: the model adds, edits and removes servers")
+                        Text("Built in: notifications, alerts, chats, models, MCP servers and their registry")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)

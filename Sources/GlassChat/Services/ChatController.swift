@@ -57,12 +57,12 @@ final class ChatController {
         let client = OpenAIClient(baseURL: baseURL, token: settings.token)
         let model = chat.model.isEmpty ? settings.defaultModel : chat.model
         streaming.insert(id)
+        let found = FoundTools()
         tasks[id] = Task {
             do {
                 for _ in 0..<Self.maxToolRounds {
                     // Read every round: the registry tools may have changed the servers.
-                    let disabled = store.chat(id)?.disabledServers ?? chat.disabledServers
-                    let functions = MCPManager.shared.functions(disabled: disabled)
+                    let functions = MCPManager.shared.functions(disabled: AppSettings.shared.disabledTools, found: found.names)
                     let tools = functions.keys.sorted().compactMap { functions[$0]?.definition }
                     var calls: [Int: ToolCall] = [:]
                     for try await event in client.streamChat(model: model, messages: turns, tools: tools) {
@@ -106,7 +106,9 @@ final class ChatController {
                         Task { () -> (String, Bool) in
                             guard let function = functions[call.name] else { return ("Unknown tool \(call.name).", true) }
                             let (text, isError): (String, Bool)
-                            if case .app(let tool) = function.target {
+                            if case .search = function.target {
+                                (text, isError) = await Self.searchTools(call.arguments, found: found)
+                            } else if case .app(let tool) = function.target {
                                 let args = call.arguments.trimmingCharacters(in: .whitespaces).isEmpty ? .object([:]) : JSONValue.parse(call.arguments)
                                 (text, isError) = args == nil ? ("The arguments are not valid JSON.", true)
                                     : await tool.run(args!, chatID: id, controller: self)
@@ -149,10 +151,34 @@ final class ChatController {
         }
     }
 
+    /// Runs `search_tools`: ranks every tool but the search, and offers the best ones for the rest of the answer.
+    private static func searchTools(_ arguments: String, found: FoundTools) async -> (String, Bool) {
+        guard let query = JSONValue.parse(arguments)?["query"]?.string, !query.isEmpty else {
+            return ("A \"query\" is needed.", true)
+        }
+        let all = MCPManager.shared.allFunctions()
+        let candidates = all.filter { $0.value.group != nil }.mapValues(\.summary)
+        do {
+            let hits = try await ToolSearch.search(query, among: candidates)
+            guard !hits.isEmpty else { return ("No tool fits \"\(query)\".", false) }
+            let active = MCPManager.shared.functions(disabled: AppSettings.shared.disabledTools, found: found.names)
+            var lines: [String] = []
+            for hit in hits {
+                let state = active[hit.name] == nil ? "now available" : "already available"
+                found.names.insert(hit.name)
+                let p = hit.probability.map { String(format: " (%.0f%%)", $0 * 100) } ?? ""
+                lines.append("- \(hit.name)\(p), \(state): \(candidates[hit.name] ?? "")")
+            }
+            return ("Found tools (call them by these names):\n" + lines.joined(separator: "\n"), false)
+        } catch {
+            return ("The search failed: \(error.localizedDescription)", true)
+        }
+    }
+
     /// When an MCP server could not start for want of npx (or another command), the model is asked
     /// (once per chat) to tell the user with an alert how to install it.
     private func missingCommandNote(_ chat: Chat) -> String? {
-        guard !chat.disabledServers.contains(AppTool.key) else { return nil }
+        guard !AppSettings.shared.disabledTools.contains(AppTool.key) else { return nil }
         let missing = MCPManager.shared.missingCommands.filter { !toldMissing.contains("\(chat.id)|\($0.server)") }
         guard !missing.isEmpty else { return nil }
         for item in missing { toldMissing.insert("\(chat.id)|\(item.server)") }
@@ -264,3 +290,9 @@ final class ChatController {
     }
 }
 
+
+/// The tools `search_tools` found during one answer: offered to the model from its next step on.
+@MainActor
+final class FoundTools {
+    var names: Set<String> = []
+}

@@ -36,9 +36,14 @@ Notes:
   local server (run through your login shell), `url` + `headers` for a remote one (Streamable HTTP), `"disabled": true`
   to keep one off. Tools are offered to the model as functions (`server__tool`); calls run without asking, in parallel,
   up to 20 rounds per answer, and show as cards in the chat. The model also has built-in registry tools
-  (`mcp_registry_list/get/add/update/delete`) to edit that JSON itself. The hammer button in a chat switches the registry
-  tools and each server off for that chat.
-- **App tools** (built in, on by default, `glasschat__app_*`): notifications, an alert window, list / create / switch to /
+  (`mcp_registry_list/get/add/update/delete`) to edit that JSON itself. The hammer button switches the App tools and each
+  server on or off; the switches are one setting for every chat.
+- **Tool search** (`glasschat__search_tools`, always on): tools that are switched off are not sent with each request;
+  the model searches them by what they do, and the best ones (4 by default) are offered for the rest of the answer.
+  A decision model ranks them (Settings → Connection → Tool Search, e.g. `typesafe/jev-1.14` through OpenRouter's
+  `/alpha/decisions`, `choice` mode with the function names as options; base URL and token default to the chat's);
+  without one, words are matched.
+- **App tools** (built in, on by default, `glasschat__app_*` and the `mcp_registry_*` ones): notifications, an alert window, list / create / switch to /
   rename / delete chats, list models and change a chat's model, list / enable / disable MCP servers. Switching chats and
   models takes effect when the answer that asked for it is over. When an MCP server cannot start because its command
   (npx, uvx…) is missing, the model is told once per chat to show an alert with install steps. The JSON is kept in `mcp.json` beside the chats.

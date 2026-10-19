@@ -85,7 +85,7 @@ struct Chat: Identifiable, Codable, Hashable, Sendable {
     var createdAt = Date.now
     var updatedAt = Date.now
     var messages: [Message] = []
-    /// MCP servers (by name, and `MCPManager.registryKey`) switched off in this chat.
+    /// Unused: tool switches are one setting for every chat now (`AppSettings.disabledTools`). Kept so older files read.
     var disabledServers: Set<String> = []
 
     init(model: String) {
