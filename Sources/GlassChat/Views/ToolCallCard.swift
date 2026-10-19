@@ -25,6 +25,7 @@ struct ToolCallCard: View {
                         .font(.callout)
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 0)
+                    ToolDuration(call: call)
                     Image(systemName: "chevron.right")
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.tertiary)
@@ -72,5 +73,72 @@ struct ToolCallCard: View {
               let pretty = try? JSONSerialization.data(withJSONObject: object, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
         else { return text }
         return String(decoding: pretty, as: UTF8.self)
+    }
+}
+
+/// How long a call took; while it runs, the time so far.
+struct ToolDuration: View {
+    let call: ToolCall
+
+    var body: some View {
+        if let start = call.startedAt {
+            if let end = call.finishedAt {
+                Text(Self.format(end.timeIntervalSince(start)))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            } else if call.result == nil {
+                TimelineView(.periodic(from: start, by: 0.1)) { context in
+                    Text(Self.format(context.date.timeIntervalSince(start)))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    static func format(_ seconds: TimeInterval) -> String {
+        seconds < 60 ? String(format: "%.1f s", max(seconds, 0)) : String(format: "%d:%02d", Int(seconds) / 60, Int(seconds) % 60)
+    }
+}
+
+/// The tool calls of a step, folded by default into one line ("Used 3 tools"); unfolded, a card per call.
+struct ToolCallsGroup: View {
+    let calls: [ToolCall]
+    @State private var open = false
+
+    private var running: Int { calls.filter { $0.result == nil }.count }
+    private var failed: Int { calls.filter(\.isError).count }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Button { withAnimation(.snappy) { open.toggle() } } label: {
+                HStack(spacing: 6) {
+                    if running > 0 {
+                        ProgressView().controlSize(.mini)
+                        Text(running == calls.count ? "Running \(calls.count) \(calls.count == 1 ? "tool" : "tools")…"
+                                                    : "Running \(running) of \(calls.count) tools…")
+                    } else {
+                        Image(systemName: failed > 0 ? "exclamationmark.triangle" : "hammer")
+                            .foregroundStyle(failed > 0 ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                        Text("Used \(calls.count) \(calls.count == 1 ? "tool" : "tools")" + (failed > 0 ? ", \(failed) failed" : ""))
+                    }
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                        .rotationEffect(.degrees(open ? 90 : 0))
+                }
+                .font(.callout)
+                .foregroundStyle(Palette.secondaryText)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+
+            if open {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(calls) { ToolCallCard(call: $0) }
+                }
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .clipped()
     }
 }

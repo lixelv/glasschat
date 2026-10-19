@@ -30,7 +30,7 @@ struct MessageRow: View {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(message.steps) { step in
                     if !step.text.isEmpty { MarkdownMessage(text: step.text) }
-                    ForEach(step.calls) { ToolCallCard(call: $0) }
+                    if !step.calls.isEmpty { ToolCallsGroup(calls: step.calls) }
                 }
                 if message.isPartial && message.content.isEmpty {
                     // Waiting for the model (also after the tools of a step have answered).
@@ -56,6 +56,8 @@ struct MessageRow: View {
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
+            // Its parts stay separate elements (the tools button is not the whole answer).
+            .accessibilityElement(children: .contain)
             .contentShape(.rect)
             .onHover { hovering = $0 }
         }

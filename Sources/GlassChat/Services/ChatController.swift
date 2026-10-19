@@ -74,7 +74,9 @@ final class ChatController {
                             break
                         }
                     }
+                    let started = Date.now
                     let round = calls.keys.sorted().compactMap { calls[$0] }.filter { !$0.name.isEmpty }
+                        .map { call -> ToolCall in var call = call; call.startedAt = started; return call }
                     if round.isEmpty { break }
                     try Task.checkCancellation()
 
@@ -98,6 +100,7 @@ final class ChatController {
                                       let c = message.steps[s].calls.firstIndex(where: { $0.id == call.id }) else { return }
                                 message.steps[s].calls[c].result = text
                                 message.steps[s].calls[c].isError = isError
+                                message.steps[s].calls[c].finishedAt = .now
                             }
                             return (text, isError)
                         }
@@ -210,6 +213,7 @@ final class ChatController {
                 for s in chat.messages[i].steps.indices {
                     for c in chat.messages[i].steps[s].calls.indices where chat.messages[i].steps[s].calls[c].result == nil {
                         chat.messages[i].steps[s].calls[c].result = "Stopped."
+                        chat.messages[i].steps[s].calls[c].finishedAt = .now
                         chat.messages[i].steps[s].calls[c].isError = true
                     }
                 }

@@ -10,6 +10,8 @@ struct ChatView: View {
     @State private var composerHeight: CGFloat = 46
     @State private var showPrompt = false
     @State private var viewportHeight: CGFloat = 0
+    /// Whether the list is scrolled to its end: only then does a streaming answer keep it there.
+    @State private var atBottom = true
     private static let bottomID = "bottom"
     private var store = ChatStore.shared
 
@@ -30,7 +32,9 @@ struct ChatView: View {
                     ScrollView {
                         // Messages start at the top; the column is at least as tall as the view,
                         // so the ScrollView never has bare space of its own (it lit up under the pointer).
-                        LazyVStack(spacing: 18) {
+                        // A plain VStack: a lazy one re-estimated the heights of rows while text streamed in,
+                        // and the list jumped.
+                        VStack(spacing: 18) {
                             ForEach(messages) { message in
                                 MessageRow(message: message)
                                     .id(message.id)
@@ -45,10 +49,20 @@ struct ChatView: View {
                         .contentShape(.rect)
                     }
                     .onGeometryChange(for: CGFloat.self) { $0.size.height - 32 } action: { viewportHeight = max($0, 0) }
+                    .onScrollGeometryChange(for: Bool.self) { geometry in
+                        geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 40
+                    } action: { _, bottom in
+                        atBottom = bottom
+                    }
                     .onAppear { proxy.scrollTo(Self.bottomID, anchor: .bottom) }
-                    .onChange(of: messages.count) { withAnimation(.smooth) { proxy.scrollTo(Self.bottomID, anchor: .bottom) } }
-                    .onChange(of: messages.last?.content.count) {
-                        if controller.isStreaming(chatID) { proxy.scrollTo(Self.bottomID, anchor: .bottom) }
+                    // A new message (the one you sent): go to the end.
+                    .onChange(of: messages.count) {
+                        atBottom = true
+                        withAnimation(.smooth) { proxy.scrollTo(Self.bottomID, anchor: .bottom) }
+                    }
+                    // New text: follow it only while you are at the end; scrolling up stops following.
+                    .onChange(of: Self.streamKey(messages.last)) {
+                        if atBottom, controller.isStreaming(chatID) { proxy.scrollTo(Self.bottomID, anchor: .bottom) }
                     }
                 }
                 .scrollContentBackground(.hidden)
@@ -106,6 +120,12 @@ struct ChatView: View {
                     }
             }
         }
+    }
+
+    /// Changes whenever the last answer grows: its text, a step, a tool result.
+    private static func streamKey(_ message: Message?) -> Int {
+        guard let message else { return 0 }
+        return message.content.count + message.steps.reduce(0) { $0 + $1.text.count + $1.calls.filter { $0.result != nil }.count + 1 }
     }
 
     private func send() {

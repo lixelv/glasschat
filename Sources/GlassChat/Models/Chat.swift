@@ -28,6 +28,8 @@ struct ToolCall: Identifiable, Codable, Hashable, Sendable {
     var arguments: String
     var result: String?
     var isError = false
+    var startedAt: Date?
+    var finishedAt: Date?
 
     var server: String { name.components(separatedBy: "__").first ?? name }
     var tool: String { name.components(separatedBy: "__").dropFirst().joined(separator: "__") }
