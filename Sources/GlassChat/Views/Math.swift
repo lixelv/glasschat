@@ -7,8 +7,8 @@ import SwiftUI
 enum MathMarkdown {
     static let scheme = "glasschat-math"
 
-    /// KaTeX draws at 1.21em of this; 1.05 sets the formulas to the size of the body text.
-    @MainActor static var inlineFontSize: CGFloat { (NSFont.systemFontSize + 1) / 1.21 * 1.05 }
+    /// KaTeX draws at 1.21em of this; 1.05 sets the formulas to the size of the body text, 1.14 is the user's enlargement.
+    @MainActor static var inlineFontSize: CGFloat { (NSFont.systemFontSize + 1) / 1.21 * 1.05 * 1.14 }
     /// A display formula ($$) is this much larger than an inline one ($); chosen by the user.
     /// Space above and below a display formula: 1.5 times the 14 pt it had (a paragraph's 10 pt margin + 4 pt padding).
     static let displayGap: CGFloat = 14 * 1.5 - 10
