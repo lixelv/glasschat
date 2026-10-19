@@ -49,8 +49,7 @@ struct ChatView: View {
                     }
                 }
                 .scrollContentBackground(.hidden)
-                // The edge effect under the title bar lit up under the pointer.
-                .scrollEdgeEffectHidden(true, for: .top)
+                .scrollEdgeEffectStyle(.soft, for: .top)
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -74,6 +73,8 @@ struct ChatView: View {
             .padding(.bottom, 16)
         }
         .navigationTitle(chat?.title ?? "")
+        // The title bar shows the chat's own background: a toolbar backdrop of its own was a lighter band.
+        .toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Button("System Prompt", systemImage: "text.bubble") { showPrompt.toggle() }
