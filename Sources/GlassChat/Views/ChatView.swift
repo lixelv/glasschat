@@ -15,26 +15,28 @@ struct ChatView: View {
     var body: some View {
         let chat = store.chat(chatID)
         let messages = chat?.messages ?? []
-        ScrollView {
-            LazyVStack(spacing: 18) {
-                ForEach(messages) { message in
-                    MessageRow(message: message)
-                        .id(message.id)
+        Group {
+            if messages.isEmpty {
+                // No ScrollView at all for an empty chat: it lit up under the pointer.
+                EmptyChat(model: chat.map { $0.model.isEmpty ? AppSettings.shared.defaultModel : $0.model } ?? "")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView {
+                    LazyVStack(spacing: 18) {
+                        ForEach(messages) { message in
+                            MessageRow(message: message)
+                                .id(message.id)
+                        }
+                    }
+                    .frame(maxWidth: 760)
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 20)
+                    .padding(.bottom, 12)
                 }
+                .defaultScrollAnchor(.bottom)
+                .scrollContentBackground(.hidden)
             }
-            .frame(maxWidth: 760)
-            .frame(maxWidth: .infinity)
-            .padding(.horizontal, 24)
-            .padding(.top, 20)
-            .padding(.bottom, 12)
-        }
-        .defaultScrollAnchor(.bottom)
-        .scrollContentBackground(.hidden)
-        // An empty chat has nothing to scroll: no hover-revealed edge band behind the greeting.
-        .scrollDisabled(messages.isEmpty)
-        .scrollEdgeEffectStyle(.soft, for: .bottom)
-        .overlay {
-            if messages.isEmpty { EmptyChat(model: chat.map { $0.model.isEmpty ? AppSettings.shared.defaultModel : $0.model } ?? "") }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(spacing: 10) {
