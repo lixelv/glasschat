@@ -7,6 +7,11 @@ import SwiftUI
 enum MathMarkdown {
     static let scheme = "glasschat-math"
 
+    /// KaTeX draws at 1.21em of this; 1.05 sets the formulas to the size of the body text.
+    @MainActor static var inlineFontSize: CGFloat { (NSFont.systemFontSize + 1) / 1.21 * 1.05 }
+    /// KaTeX's own ratio of a display formula to an inline one (its CSS font-size is 1.21em).
+    static let displayScale: CGFloat = 1.21
+
     /// Rewrites `$$..$$`, `\[..\]` (display) and `$..$`, `\(..\)` (inline) outside code.
     static func prepare(_ markdown: String) -> String {
         guard markdown.contains("$") || markdown.contains("\\(") || markdown.contains("\\[") else { return markdown }
@@ -149,7 +154,7 @@ enum MathMarkdown {
 struct MathInlineImageProvider: InlineImageProvider {
     func image(with url: URL, label: String) async throws -> Image {
         guard let (tex, _) = MathMarkdown.decode(url) else { return try await DefaultInlineImageProvider.default.image(with: url, label: label) }
-        if let formula = await MathRenderer.shared.image(tex: tex, display: false, fontSize: (NSFont.systemFontSize + 1) / 1.21 * 1.05,
+        if let formula = await MathRenderer.shared.image(tex: tex, display: false, fontSize: MathMarkdown.inlineFontSize,
                                                         dark: await MathMarkdown.isDark) {
             // The formula's baseline on the text's: text runs through its middle, not under it.
             InlineImageMetrics.shared.setBaselineOffset(-formula.depth, for: url.absoluteString)
@@ -196,7 +201,7 @@ private struct DisplayFormula: View {
             }
         }
         .task(id: "\(colorScheme)|\(tex)") {
-            let rendered = await MathRenderer.shared.image(tex: tex, display: true, fontSize: (NSFont.systemFontSize + 1) / 1.21 * 1.2,
+            let rendered = await MathRenderer.shared.image(tex: tex, display: true, fontSize: MathMarkdown.inlineFontSize * MathMarkdown.displayScale,
                                                            dark: colorScheme == .dark)
             image = rendered?.image
             failed = rendered == nil
