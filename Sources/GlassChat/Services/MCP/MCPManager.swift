@@ -195,6 +195,23 @@ final class MCPManager {
         }
     }
 
+    /// Sets or clears `"disabled"` of an entry (the app tools' enable/disable).
+    func setEnabled(_ name: String, _ enabled: Bool) throws {
+        guard case .object(var entry)? = config[name] else { throw MCPError(message: "There is no MCP server \"\(name)\"; see app_list_mcp.") }
+        if enabled { entry["disabled"] = nil } else { entry["disabled"] = .bool(true) }
+        try setEntry(name, .object(entry))
+    }
+
+    /// Servers that could not start because their command is missing (npx without Node.js, uvx without uv).
+    var missingCommands: [(server: String, command: String)] {
+        servers.compactMap { server in
+            guard server.transport == .stdio, case .failed(let message)? = status[server.id],
+                  message.contains("command not found") || message.contains("No such file") || message.contains("code 127")
+            else { return nil }
+            return (server.name, server.command)
+        }
+    }
+
     // MARK: Connections
 
     /// Connects enabled servers whose configuration changed and drops the rest.
@@ -282,6 +299,7 @@ final class MCPManager {
         enum Target: Sendable {
             case server(MCPServer.ID, tool: String)
             case registry(RegistryTool)
+            case app(AppTool)
         }
 
         let definition: JSONValue
@@ -297,6 +315,12 @@ final class MCPManager {
     /// not switched off in it, keyed by the function name the model sees.
     func functions(disabled: Set<String>) -> [String: Function] {
         var result: [String: Function] = [:]
+        if !disabled.contains(AppTool.key) {
+            for tool in AppTool.allCases {
+                let name = Self.registryPrefix + "__" + tool.rawValue
+                result[name] = Function(definition: Self.function(name, tool.description, tool.parameters), target: .app(tool))
+            }
+        }
         if !disabled.contains(Self.registryKey) {
             for tool in RegistryTool.allCases {
                 let name = Self.registryPrefix + "__" + tool.rawValue
@@ -332,6 +356,8 @@ final class MCPManager {
         case .registry(let tool):
             do { return (try registry(tool, args), false) }
             catch { return (error.localizedDescription, true) }
+        case .app:
+            return ("App tools run in the chat controller.", true)
         case .server(let id, let tool):
             guard let transport = transports[id] else { return ("The MCP server of this tool is not connected.", true) }
             do {
@@ -364,7 +390,8 @@ final class MCPManager {
 
     func activeToolCount(disabled: Set<String>) -> Int {
         let registry = disabled.contains(Self.registryKey) ? 0 : RegistryTool.allCases.count
-        return registry + servers.filter { $0.enabled && !disabled.contains($0.id) && status[$0.id] == .connected }
+        let app = disabled.contains(AppTool.key) ? 0 : AppTool.allCases.count
+        return registry + app + servers.filter { $0.enabled && !disabled.contains($0.id) && status[$0.id] == .connected }
             .reduce(0) { $0 + (tools[$1.id]?.count ?? 0) }
     }
 

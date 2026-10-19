@@ -26,18 +26,37 @@ struct GlassChatApp: App {
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var appearanceObservation: NSKeyValueObservation?
+    /// SwiftUI keeps its own object as NSApp.delegate; this is ours.
+    private static weak var current: AppDelegate?
+
+    /// The Dock icon of the current appearance (an icns has no dark variant without an asset catalog).
+    private func updateDockIcon() {
+        let dark = NSApp.effectiveAppearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        if let url = Bundle.main.url(forResource: dark ? "AppIcon-Dark" : "AppIcon-Light", withExtension: "png"),
+           let image = NSImage(contentsOf: url) {
+            NSApp.applicationIconImage = image
+        }
+    }
+
     func applicationWillFinishLaunching(_ notification: Notification) {
         NSApplication.shared.setActivationPolicy(.regular)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApplication.shared.activate()
-        MainActor.assumeIsolated { MCPManager.shared.syncConnections() }
+        Self.current = self
+        updateDockIcon()
+        appearanceObservation = NSApp.observe(\.effectiveAppearance) { _, _ in
+            Task { @MainActor in AppDelegate.current?.updateDockIcon() }
+        }
+        MCPManager.shared.syncConnections()
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        MainActor.assumeIsolated { ChatStore.shared.saveNow() }
+        ChatStore.shared.saveNow()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }

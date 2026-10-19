@@ -43,6 +43,13 @@ struct RootView: View {
             }
         }
         .onReceive(NotificationCenter.default.publisher(for: .newChat)) { _ in newChat() }
+        // The app tools switch chats and delete them.
+        .onReceive(NotificationCenter.default.publisher(for: .selectChat)) { note in
+            if let id = note.object as? Chat.ID, store.chat(id) != nil { selection = id }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .chatDeleted)) { note in
+            if let id = note.object as? Chat.ID, selection == id { selection = store.chats.first?.id }
+        }
     }
 
     private func newChat() {

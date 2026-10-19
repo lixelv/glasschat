@@ -37,7 +37,11 @@ Notes:
   to keep one off. Tools are offered to the model as functions (`server__tool`); calls run without asking, in parallel,
   up to 20 rounds per answer, and show as cards in the chat. The model also has built-in registry tools
   (`mcp_registry_list/get/add/update/delete`) to edit that JSON itself. The hammer button in a chat switches the registry
-  tools and each server off for that chat. The JSON is kept in `mcp.json` beside the chats.
+  tools and each server off for that chat.
+- **App tools** (built in, on by default, `glasschat__app_*`): notifications, an alert window, list / create / switch to /
+  rename / delete chats, list models and change a chat's model, list / enable / disable MCP servers. Switching chats and
+  models takes effect when the answer that asked for it is over. When an MCP server cannot start because its command
+  (npx, uvx…) is missing, the model is told once per chat to show an alert with install steps. The JSON is kept in `mcp.json` beside the chats.
 
 ## Settings
 

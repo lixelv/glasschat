@@ -14,6 +14,7 @@ mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$BIN/GlassChat" "$APP/Contents/MacOS/GlassChat"
 cp Resources/Info.plist "$APP/Contents/Info.plist"
 [[ -f Resources/AppIcon.icns ]] && cp Resources/AppIcon.icns "$APP/Contents/Resources/"
+cp Resources/AppIcon-Light.png Resources/AppIcon-Dark.png "$APP/Contents/Resources/" 2>/dev/null || true
 for b in "$BIN"/*.bundle(N); do cp -R "$b" "$APP/Contents/Resources/"; done
 codesign --force --deep --sign - "$APP"
 

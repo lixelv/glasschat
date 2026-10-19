@@ -145,6 +145,15 @@ private struct ToolsButton: View {
         .popover(isPresented: $open, arrowEdge: .top) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Tools").font(.headline)
+                Toggle(isOn: binding(AppTool.key)) {
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text("App")
+                        Text("Built in: notifications, alerts, chats, models, MCP on/off")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .toggleStyle(.switch)
                 Toggle(isOn: binding(MCPManager.registryKey)) {
                     VStack(alignment: .leading, spacing: 1) {
                         Text("MCP Registry")

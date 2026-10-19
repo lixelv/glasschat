@@ -9,6 +9,14 @@ final class ChatController {
     private(set) var streaming: Set<Chat.ID> = []
     var errors: [Chat.ID: APIError] = [:]
     private var tasks: [Chat.ID: Task<Void, Never>] = [:]
+    /// What the app tools asked to do once the answer of a chat is over (switch chat, change model).
+    private var pending: [Chat.ID: [() -> Void]] = [:]
+    /// Missing commands the model was already asked to tell the user about, per chat.
+    private var toldMissing: Set<String> = []
+
+    func afterAnswer(in id: Chat.ID, _ action: @escaping () -> Void) {
+        pending[id, default: []].append(action)
+    }
 
     private let store = ChatStore.shared
     private let settings = AppSettings.shared
@@ -39,6 +47,9 @@ final class ChatController {
 
         let prompt = (chat.systemPrompt ?? settings.systemPrompt).trimmingCharacters(in: .whitespacesAndNewlines)
         var turns: [JSONValue] = prompt.isEmpty ? [] : [.object(["role": .string("system"), "content": .string(prompt)])]
+        if let note = missingCommandNote(chat) {
+            turns.append(.object(["role": .string("system"), "content": .string(note)]))
+        }
         for message in store.chat(id)!.messages where message.id != assistant.id {
             turns += Self.turns(of: message)
         }
@@ -94,7 +105,14 @@ final class ChatController {
                     let running = round.map { call in
                         Task { () -> (String, Bool) in
                             guard let function = functions[call.name] else { return ("Unknown tool \(call.name).", true) }
-                            let (text, isError) = await MCPManager.shared.call(function, arguments: call.arguments)
+                            let (text, isError): (String, Bool)
+                            if case .app(let tool) = function.target {
+                                let args = call.arguments.trimmingCharacters(in: .whitespaces).isEmpty ? .object([:]) : JSONValue.parse(call.arguments)
+                                (text, isError) = args == nil ? ("The arguments are not valid JSON.", true)
+                                    : await tool.run(args!, chatID: id, controller: self)
+                            } else {
+                                (text, isError) = await MCPManager.shared.call(function, arguments: call.arguments)
+                            }
                             self.edit(id, assistant.id) { message in
                                 guard let s = message.steps.firstIndex(where: { $0.id == step.id }),
                                       let c = message.steps[s].calls.firstIndex(where: { $0.id == call.id }) else { return }
@@ -106,10 +124,10 @@ final class ChatController {
                         }
                     }
                     var results: [String: (String, Bool)] = [:]
-                    await withTaskCancellationHandler {
-                        for (call, task) in zip(round, running) { results[call.id] = await task.value }
-                    } onCancel: {
-                        for task in running { task.cancel() }
+                    // Stop ends the answer at once, even when a tool does not listen to cancellation.
+                    for (call, task) in zip(round, running) {
+                        guard let value = await value(of: task) else { break }
+                        results[call.id] = value
                     }
                     for call in round {
                         turns.append(.object([
@@ -129,6 +147,21 @@ final class ChatController {
             }
             finish(id, assistant: assistant.id)
         }
+    }
+
+    /// When an MCP server could not start for want of npx (or another command), the model is asked
+    /// (once per chat) to tell the user with an alert how to install it.
+    private func missingCommandNote(_ chat: Chat) -> String? {
+        guard !chat.disabledServers.contains(AppTool.key) else { return nil }
+        let missing = MCPManager.shared.missingCommands.filter { !toldMissing.contains("\(chat.id)|\($0.server)") }
+        guard !missing.isEmpty else { return nil }
+        for item in missing { toldMissing.insert("\(chat.id)|\(item.server)") }
+        let list = missing.map { "\"\($0.server)\" (command `\($0.command)`)" }.joined(separator: ", ")
+        let node = missing.contains { ["npx", "npm", "node"].contains($0.command) }
+        let how = node
+            ? "npx comes with Node.js. Steps: install Homebrew if needed (`/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"`), then `brew install node`, or take the installer from https://nodejs.org; check with `node -v` and `npx -v`; then reconnect the server (Settings → MCP) or restart GlassChat."
+            : "Tell them which program is missing and the usual way to install it on macOS (for `uvx`: `brew install uv` or `curl -LsSf https://astral.sh/uv/install.sh | sh`), then to reconnect the server."
+        return "Some MCP servers could not start because a command is not installed: \(list). Before you answer, call glasschat__app_alert to tell the user, in their language, to install it, with brief steps. \(how)"
     }
 
     private func edit(_ id: Chat.ID, _ messageID: Message.ID, _ change: (inout Message) -> Void) {
@@ -203,6 +236,9 @@ final class ChatController {
     private func finish(_ id: Chat.ID, assistant: Message.ID) {
         streaming.remove(id)
         tasks[id] = nil
+        defer {
+            for action in pending.removeValue(forKey: id) ?? [] { action() }
+        }
         store.update(id) { chat in
             guard let i = chat.messages.lastIndex(where: { $0.id == assistant }) else { return }
             if chat.messages[i].content.isEmpty && chat.messages[i].steps.isEmpty {
@@ -227,3 +263,4 @@ final class ChatController {
         return words.count > 60 ? String(words.prefix(60)) + "…" : words
     }
 }
+
