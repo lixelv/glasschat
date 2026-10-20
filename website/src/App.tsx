@@ -68,10 +68,10 @@ const features = [
 ]
 
 const showcases = [
-  { img: "site-code.jpg", title: "Code, beautifully clear.", text: "Answers stream in with Markdown and syntax‑highlighted code blocks you can copy in one click." },
-  { img: "site-math.jpg", title: "Math that reads like a textbook.", text: "LaTeX renders inline and on its own line, sharp at any size." },
-  { img: "site-tools.jpg", title: "Your tools, in the conversation.", text: "Connect local processes and remote services with MCP, and watch each call as it happens." },
-  { img: "site-models.jpg", title: "Any model. Your key.", text: "Set your base URL and key once, then switch models right from the chat window." },
+  { img: "site-code.png", title: "Code, beautifully clear.", text: "Answers stream in with Markdown and syntax‑highlighted code blocks you can copy in one click." },
+  { img: "site-math.png", title: "Math that reads like a textbook.", text: "LaTeX renders inline and on its own line, sharp at any size." },
+  { img: "site-tools.png", title: "Your tools, in the conversation.", text: "Connect local processes and remote services with MCP, and watch each call as it happens." },
+  { img: "site-models.png", title: "Any model. Your key.", text: "Set your base URL and key once, then switch models right from the chat window." },
 ]
 
 export default function App() {
@@ -112,7 +112,7 @@ export default function App() {
         </section>
 
         <Reveal className="mx-auto mt-20 max-w-[1200px] px-4">
-          <img src={`${BASE}shots/site-pair.jpg`} alt="GlassChat in light and dark appearance" className="w-full" />
+          <img src={`${BASE}shots/site-pair.png`} alt="GlassChat in light and dark appearance" className="w-full" />
         </Reveal>
 
         {showcases.map((s) => (
