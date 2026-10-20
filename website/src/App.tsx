@@ -1,8 +1,5 @@
-import { useEffect, useState } from "react"
-import { Apple, Code2, FileText, KeyRound, Plug, Sigma, Sparkles } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
-import { Card, CardContent } from "@/components/ui/card"
+import { useEffect, useRef, useState, type ReactNode } from "react"
+import TechText from "@/components/TechText"
 
 const REPO = "lixelv/glasschat"
 const RELEASES = `https://github.com/${REPO}/releases/latest`
@@ -25,114 +22,140 @@ function useLatestDmg() {
   return release
 }
 
-function DownloadButton({ release }: { release: Release | null }) {
+// Fades a block up once as it scrolls into view; CSS turns this off for reduced motion.
+function Reveal({ children, className = "" }: { children: ReactNode; className?: string }) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [shown, setShown] = useState(false)
+  useEffect(() => {
+    const el = ref.current
+    if (!el) return
+    const io = new IntersectionObserver(([e]) => e.isIntersecting && (setShown(true), io.disconnect()), {
+      rootMargin: "0px 0px -10% 0px",
+    })
+    io.observe(el)
+    return () => io.disconnect()
+  }, [])
   return (
-    <div className="flex flex-col items-center gap-3">
-      <Button
-        render={<a href={release?.url ?? RELEASES} />}
-        nativeButton={false}
-        size="lg"
-        className="h-14 rounded-full bg-white px-8 text-base font-semibold text-black shadow-[0_0_40px_rgba(255,255,255,0.25)] hover:bg-white/90"
-      >
-        <Apple className="size-5" />
-        Download for macOS
-      </Button>
-      <p className="text-sm text-white/50">
-        {release ? `${release.tag} · ` : ""}Free · macOS 26 or later · Apple silicon
-      </p>
+    <div ref={ref} className={`reveal ${shown ? "is-shown" : ""} ${className}`}>
+      {children}
     </div>
   )
 }
 
+function DownloadButton({ release, small = false }: { release: Release | null; small?: boolean }) {
+  return (
+    <a
+      href={release?.url ?? RELEASES}
+      className={`press inline-flex items-center gap-2 rounded-full bg-white font-medium text-black hover:bg-white/90 ${
+        small ? "px-3 py-1 text-xs" : "px-7 py-3.5 text-[17px]"
+      }`}
+    >
+      <svg viewBox="0 0 17 20" className={small ? "size-3" : "size-4"} fill="currentColor" aria-hidden>
+        <path d="M14.1 10.6c0-2.6 2.1-3.8 2.2-3.9-1.2-1.8-3.1-2-3.7-2-1.6-.2-3.1.9-3.9.9-.8 0-2-.9-3.4-.9C3.6 4.8 2 5.8 1.1 7.4c-1.8 3.2-.5 7.9 1.3 10.5.9 1.3 1.9 2.7 3.3 2.6 1.3-.1 1.8-.9 3.4-.9s2 .9 3.4.8c1.4 0 2.3-1.3 3.2-2.6 1-1.5 1.4-2.9 1.4-3-.1 0-2.8-1.1-2.9-4.2ZM11.6 3c.7-.9 1.2-2.1 1.1-3.3-1 .1-2.3.7-3 1.6-.7.8-1.3 2-1.1 3.2 1.1.1 2.3-.6 3-1.5Z" />
+      </svg>
+      Download for macOS
+    </a>
+  )
+}
+
 const features = [
-  { icon: Sparkles, title: "Native to macOS", text: "SwiftUI and Liquid Glass. Light and dark, with matching app icons." },
-  { icon: KeyRound, title: "Bring your own key", text: "OpenAI, OpenRouter, Ollama, LM Studio — any OpenAI-compatible API." },
-  { icon: Code2, title: "Code and Markdown", text: "Streaming answers with syntax-highlighted code blocks." },
-  { icon: Sigma, title: "LaTeX math", text: "Inline and display equations rendered like a textbook." },
-  { icon: FileText, title: "Files", text: "Images, audio, PDFs and code: paste, drag and drop, or attach." },
-  { icon: Plug, title: "MCP tools", text: "Connect conversations to local processes and remote services." },
+  ["Native to macOS", "SwiftUI and Liquid Glass, in light and dark, with matching app icons."],
+  ["Bring your own key", "OpenAI, OpenRouter, Ollama, LM Studio — any OpenAI‑compatible API."],
+  ["Files, your way", "Images, audio, PDFs and code. Paste, drop, or attach."],
+  ["Edit and branch", "Edit, retry, or branch from any message in the conversation."],
+  ["Private by design", "Chats stay on your Mac. API keys live in the Keychain."],
+  ["Open source", "Free to use, and every line is on GitHub."],
 ]
 
-const shots = [
-  { src: "02-code.jpg", alt: "Syntax-highlighted Swift code in a GlassChat conversation" },
-  { src: "03-math.jpg", alt: "LaTeX equations rendered in GlassChat" },
-  { src: "04-tools.jpg", alt: "An MCP tool call in GlassChat" },
-  { src: "05-models.jpg", alt: "A new chat in GlassChat" },
+const showcases = [
+  { img: "site-code.jpg", title: "Code, beautifully clear.", text: "Answers stream in with Markdown and syntax‑highlighted code blocks you can copy in one click." },
+  { img: "site-math.jpg", title: "Math that reads like a textbook.", text: "LaTeX renders inline and on its own line, sharp at any size." },
+  { img: "site-tools.jpg", title: "Your tools, in the conversation.", text: "Connect local processes and remote services with MCP, and watch each call as it happens." },
+  { img: "site-models.jpg", title: "Any model. Your key.", text: "Set your base URL and key once, then switch models right from the chat window." },
 ]
 
 export default function App() {
   const release = useLatestDmg()
   return (
-    <div className="min-h-screen bg-[#07080c] text-white">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-[720px] bg-[radial-gradient(ellipse_at_top,rgba(110,130,255,0.22),transparent_65%)]" />
+    <div className="min-h-screen bg-black text-[#f5f5f7] antialiased">
+      <nav className="sticky top-0 z-50 border-b border-white/[0.08] bg-[rgba(22,22,23,0.72)] backdrop-blur-xl backdrop-saturate-[1.8]">
+        <div className="mx-auto flex h-12 max-w-[980px] items-center justify-between px-4 text-xs">
+          <a href={BASE} className="flex items-center gap-2 text-[13px] font-semibold tracking-tight">
+            <img src={`${BASE}icon.png`} alt="" className="size-5" />
+            GlassChat
+          </a>
+          <div className="flex items-center gap-6">
+            <a href={`https://github.com/${REPO}`} className="text-white/80 transition-colors hover:text-white">
+              GitHub
+            </a>
+            <DownloadButton release={release} small />
+          </div>
+        </div>
+      </nav>
 
-      <header className="relative mx-auto flex max-w-6xl items-center justify-between px-4 py-5 sm:px-6">
-        <a href={BASE} className="flex items-center gap-2.5 font-semibold">
-          <img src={`${BASE}icon.png`} alt="" className="size-8" />
-          GlassChat
-        </a>
-        <a href={`https://github.com/${REPO}`} className="text-sm text-white/60 transition hover:text-white">
-          GitHub
-        </a>
-      </header>
-
-      <main className="relative">
-        <section className="mx-auto flex max-w-4xl flex-col items-center px-4 pt-16 text-center sm:px-6 sm:pt-24">
-          <img src={`${BASE}icon.png`} alt="GlassChat icon" className="mb-8 size-28 drop-shadow-[0_20px_50px_rgba(110,130,255,0.35)]" />
-          <Badge variant="outline" className="mb-6 border-white/15 bg-white/5 text-white/70">
-            Open source · Native macOS app
-          </Badge>
-          <h1 className="text-5xl font-semibold tracking-tight sm:text-7xl">
-            Your favorite AI models.
-            <br />
-            <span className="bg-gradient-to-b from-white to-white/50 bg-clip-text text-transparent">Right at home on Mac.</span>
-          </h1>
-          <p className="mt-6 max-w-2xl text-lg text-white/60">
-            GlassChat is a native AI chat app built with SwiftUI and Liquid Glass. Bring your own API key, pick a model, and start talking.
-          </p>
-          <div className="mt-10">
-            <DownloadButton release={release} />
+      <main>
+        <section className="mx-auto max-w-[980px] px-4 pt-20 text-center sm:pt-28">
+          <div className="intro">
+            <img src={`${BASE}icon.png`} alt="GlassChat icon" className="mx-auto mb-2 size-24" />
+            <div className="mx-auto h-[120px] max-w-[760px] sm:h-[200px]">
+              <TechText text="GlassChat" fontSize={170} fontWeight={600} letterSpacing={-0.03} color="#f5f5f7" accentColor="#2997ff" labels={false} intro="assemble" />
+            </div>
+            <h1 className="display mx-auto max-w-[720px] text-[40px] sm:text-[56px]">Your favorite AI models. Right at home on Mac.</h1>
+            <p className="mx-auto mt-5 max-w-[560px] text-[19px] leading-relaxed text-[#86868b] sm:text-[21px]">
+              A native chat app built with SwiftUI and Liquid Glass. Bring your own key, pick a model, and start talking.
+            </p>
+            <div className="mt-9 flex flex-col items-center gap-3">
+              <DownloadButton release={release} />
+              <p className="text-xs text-[#86868b]">{release ? `${release.tag} · ` : ""}Free · macOS 26 or later · Apple silicon</p>
+            </div>
           </div>
         </section>
 
-        <section className="mx-auto mt-20 max-w-6xl px-4 sm:px-6">
-          <img
-            src={`${BASE}shots/01-light.jpg`}
-            alt="GlassChat in light and dark appearance"
-            className="w-full rounded-2xl border border-white/10 shadow-2xl"
-          />
-        </section>
+        <Reveal className="mx-auto mt-20 max-w-[1200px] px-4">
+          <img src={`${BASE}shots/site-pair.jpg`} alt="GlassChat in light and dark appearance" className="w-full" />
+        </Reveal>
 
-        <section className="mx-auto mt-28 max-w-6xl px-4 sm:px-6">
-          <h2 className="text-center text-3xl font-semibold tracking-tight sm:text-4xl">Everything you need. Nothing you don't.</h2>
-          <div className="mt-12 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-            {features.map(({ icon: Icon, title, text }) => (
-              <Card key={title} className="border-white/10 bg-white/[0.03] text-white backdrop-blur">
-                <CardContent className="space-y-2">
-                  <Icon className="size-5 text-indigo-300" />
-                  <h3 className="font-medium">{title}</h3>
-                  <p className="text-sm text-white/55">{text}</p>
-                </CardContent>
-              </Card>
+        {showcases.map((s) => (
+          <section key={s.img} className="mx-auto mt-32 max-w-[1200px] px-4 text-center sm:mt-44">
+            <Reveal>
+              <h2 className="display mx-auto max-w-[760px] text-[36px] sm:text-[56px]">{s.title}</h2>
+              <p className="mx-auto mt-4 max-w-[560px] text-[19px] leading-relaxed text-[#86868b] sm:text-[21px]">{s.text}</p>
+            </Reveal>
+            <Reveal className="mt-12">
+              <img src={`${BASE}shots/${s.img}`} alt={s.title} loading="lazy" className="w-full" />
+            </Reveal>
+          </section>
+        ))}
+
+        <section className="mx-auto mt-32 max-w-[980px] px-4 sm:mt-44">
+          <Reveal>
+            <h2 className="display text-center text-[36px] sm:text-[56px]">Everything in its place.</h2>
+          </Reveal>
+          <Reveal className="mt-14 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            {features.map(([title, text]) => (
+              <div key={title} className="rounded-[28px] bg-[#161617] p-8">
+                <h3 className="text-[21px] font-semibold tracking-[-0.01em]">{title}</h3>
+                <p className="mt-2 text-[17px] leading-relaxed text-[#86868b]">{text}</p>
+              </div>
             ))}
-          </div>
+          </Reveal>
         </section>
 
-        <section className="mx-auto mt-28 grid max-w-6xl gap-6 px-4 sm:px-6 md:grid-cols-2">
-          {shots.map((s) => (
-            <img key={s.src} src={`${BASE}shots/${s.src}`} alt={s.alt} loading="lazy" className="w-full rounded-xl border border-white/10" />
-          ))}
-        </section>
-
-        <section className="mx-auto mt-28 flex max-w-3xl flex-col items-center px-4 pb-28 text-center sm:px-6">
-          <h2 className="mb-4 text-3xl font-semibold tracking-tight sm:text-4xl">Make yourself at home.</h2>
-          <p className="mb-10 text-white/60">Your chats stay on your Mac. API keys live in the macOS Keychain.</p>
-          <DownloadButton release={release} />
+        <section className="mx-auto max-w-[980px] px-4 py-36 text-center sm:py-48">
+          <Reveal>
+            <h2 className="display text-[40px] sm:text-[64px]">Make yourself at home.</h2>
+            <div className="mt-10 flex flex-col items-center gap-3">
+              <DownloadButton release={release} />
+              <a href={`https://github.com/${REPO}`} className="text-[17px] text-[#2997ff] hover:underline">
+                View on GitHub ›
+              </a>
+            </div>
+          </Reveal>
         </section>
       </main>
 
-      <footer className="border-t border-white/10 py-8 text-center text-sm text-white/40">
-        GlassChat · <a href={`https://github.com/${REPO}`} className="hover:text-white">Source on GitHub</a>
+      <footer className="border-t border-[#424245] py-6">
+        <p className="mx-auto max-w-[980px] px-4 text-xs text-[#86868b]">GlassChat is free and open source. Requires macOS 26 or later.</p>
       </footer>
     </div>
   )

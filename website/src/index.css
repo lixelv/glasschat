@@ -1,7 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
-@import "@fontsource-variable/geist";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -128,3 +127,27 @@
     @apply font-sans;
     }
 }
+/* Apple-style system type: SF Pro on Apple devices. */
+:root {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", Helvetica, Arial, sans-serif;
+}
+body { background: #000; font-family: var(--font-sans); }
+.display {
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
+  font-weight: 600;
+  line-height: 1.07;
+  letter-spacing: -0.015em;
+}
+.press { transition: transform 100ms ease-out, background-color 150ms; }
+.press:active { transform: scale(0.97); }
+.reveal { opacity: 0; transform: translateY(32px); transition: opacity 900ms cubic-bezier(0.25, 1, 0.5, 1), transform 900ms cubic-bezier(0.25, 1, 0.5, 1); }
+.reveal.is-shown { opacity: 1; transform: none; }
+@media (prefers-reduced-motion: reduce) {
+  .reveal { transform: none; transition: opacity 200ms ease; }
+}
+@media (prefers-reduced-transparency: reduce) {
+  nav { background: #161617 !important; backdrop-filter: none !important; }
+}
+.intro { animation: intro 1000ms cubic-bezier(0.25, 1, 0.5, 1) both; }
+@keyframes intro { from { opacity: 0; transform: translateY(24px); } }
+@media (prefers-reduced-motion: reduce) { .intro { animation-name: fade; } @keyframes fade { from { opacity: 0; } } }
