@@ -1,5 +1,8 @@
 import AVFoundation
 import Observation
+import os
+
+let voiceLog = Logger(subsystem: "dev.lixelv.glasschat", category: "voice")
 
 /// A phrase recorded for the assistant: 16 kHz mono 16-bit WAV in the temporary folder.
 struct Recording: Sendable {
@@ -95,7 +98,11 @@ final class VoiceRecorder {
     private func heard(_ db: Double, at time: TimeInterval) {
         guard isRecording else { return }
         level = min(max((db + 60) / 50, 0), 1)
-        switch detector.feed(db, at: time) {
+        let event = detector.feed(db, at: time)
+        if Int(time * 50) % 10 == 0 || event != nil {
+            voiceLog.debug("t=\(time, format: .fixed(precision: 2)) db=\(db, format: .fixed(precision: 1)) floor=\(self.detector.floor, format: .fixed(precision: 1)) speaking=\(self.detector.speaking) event=\(String(describing: event), privacy: .public)")
+        }
+        switch event {
         case .phraseEnded?: end(writer.map { Recording(url: $0.url, duration: time) })
         case .noSpeech?: end(nil)
         default: break

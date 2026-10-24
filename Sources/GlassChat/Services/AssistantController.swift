@@ -13,7 +13,7 @@ final class AssistantController {
         case idle, listening(followUp: Bool), transcribing, answering, speaking
     }
 
-    private(set) var phase = Phase.idle
+    private(set) var phase = Phase.idle { didSet { voiceLog.debug("phase \(String(describing: self.phase), privacy: .public)") } }
     /// What the user said last (live while they speak, with Apple recognition).
     private(set) var heard = ""
     private(set) var error: String?
@@ -93,6 +93,8 @@ final class AssistantController {
 
     /// Folding stops listening and speaking; an answer being written goes on.
     func collapsed() {
+        // A conversation still waiting to listen ends; one with an answer on the way goes on.
+        if phase != .answering, phase != .speaking, !questionListening { cycle?.cancel() }
         recorder.cancel()
         session?.cancel()
         session = nil
@@ -196,7 +198,9 @@ final class AssistantController {
 
     /// One phrase as text; nil when nothing was said in time, it was cancelled or it failed (`error`).
     private func hear(followUp: Bool) async -> String? {
-        guard await VoiceRecorder.requestAccess() else {
+        let allowed = await VoiceRecorder.requestAccess()
+        guard !Task.isCancelled else { return nil }
+        guard allowed else {
             microphoneDenied = true
             error = VoiceError.microphoneDenied.localizedDescription
             return nil
@@ -209,8 +213,12 @@ final class AssistantController {
                 heard = ""
                 let session = try await Transcription.start(
                     inputFormat: format,
-                    onPartial: { [weak self] text in self?.heard = text },
+                    onPartial: { [weak self] text in voiceLog.debug("partial: \(text, privacy: .public)"); self?.heard = text },
                     onProgress: { [weak self] progress in self?.downloadProgress = progress })
+                guard !Task.isCancelled else {
+                    session.cancel()
+                    return nil
+                }
                 self.session = session
                 var config = SilenceDetector.Config()
                 config.silence = settings.silencePause
@@ -220,15 +228,18 @@ final class AssistantController {
                     self.session = nil
                     return nil
                 }
+                voiceLog.debug("phrase ended, duration \(recording.duration)")
                 phase = .transcribing
                 defer { try? FileManager.default.removeItem(at: recording.url) }
                 let text = try await session.finish(recording)
                 self.session = nil
+                voiceLog.debug("transcribed: \(text, privacy: .public)")
                 // Nothing recognised: listen again in the same way.
                 guard !text.isEmpty else { continue }
                 heard = text
                 return text
             } catch {
+                voiceLog.error("hear failed: \(error.localizedDescription, privacy: .public)")
                 session?.cancel()
                 session = nil
                 self.error = error.localizedDescription

@@ -13,6 +13,8 @@ struct SilenceDetector {
         var endMargin = 6.0
         var silence = 1.5
         var maxPhrase = 60.0
+        /// dB per second the noise floor may rise while speaking.
+        var floorRise = 4.0
         /// Seconds to wait for speech to start.
         var wait = 8.0
     }
@@ -28,6 +30,7 @@ struct SilenceDetector {
     private var belowSince: TimeInterval?
     private var speechStart: TimeInterval = 0
     private var done = false
+    private var lastTime: TimeInterval?
 
     init(_ config: Config) {
         self.config = config
@@ -37,6 +40,8 @@ struct SilenceDetector {
     mutating func feed(_ db: Double, at time: TimeInterval) -> Event? {
         guard !done else { return nil }
         let eps = 1e-6
+        let dt = lastTime.map { time - $0 } ?? 0
+        lastTime = time
         if time < config.calibration {
             calibrationSum += db
             calibrationCount += 1
@@ -62,6 +67,9 @@ struct SilenceDetector {
             }
             return nil
         }
+        // While speaking the floor still follows the room: down to any quieter moment, slowly up otherwise
+        // (a start measured on a nearly deaf microphone, or a room that got louder, would never end the phrase).
+        floor = db < floor ? db : min(floor + config.floorRise * dt, db)
         if time - speechStart >= config.maxPhrase - eps {
             done = true
             return .phraseEnded

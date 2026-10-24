@@ -22,11 +22,18 @@ extension SelfTests {
         expect(near(run([(-60, 1), (-30, 0.5), (-60, 2)]), [(.speechStarted, 1.15), (.phraseEnded, 3.0)]), "phrase with 1.5 s pause")
         expect(near(run([(-60, 0.5), (-30, 0.1), (-60, 9)]), [(.noSpeech, 8.0)]), "blip is not speech; wait 8 s")
         expect(near(run([(-60, 16)], wait: 15), [(.noSpeech, 15.0)]), "follow-up window 15 s")
-        expect(near(run([(-60, 0.5), (-30, 61)]), [(.speechStarted, 0.65), (.phraseEnded, 60.5)]), "phrase capped at 60 s")
+        // Talking without a real pause (only short gaps between words) for over a minute.
+        let talk = [(db: -60.0, seconds: 0.5)] + Array(repeating: [(db: -30.0, seconds: 0.9), (db: -60.0, seconds: 0.1)], count: 62).flatMap { $0 }
+        expect(near(run(talk), [(.speechStarted, 0.65), (.phraseEnded, 60.5)]), "phrase capped at 60 s")
         // The floor rose to -50 (under the -48 threshold): the threshold follows it.
         expect(near(run([(-60, 1), (-50, 3), (-35, 0.5), (-45, 2)]), [(.speechStarted, 4.15), (.phraseEnded, 6.0)]), "floor adapts")
-        // After speech, -50 is above floor + 6 = -54: not silence yet.
-        expect(near(run([(-60, 1), (-30, 0.5), (-50, 3), (-60, 2)]), [(.speechStarted, 1.15), (.phraseEnded, 6.0)]), "hysteresis")
+        // A short gap between words is not the end.
+        expect(near(run([(-60, 1), (-30, 0.5), (-60, 0.6), (-30, 0.5), (-60, 2)]), [(.speechStarted, 1.15), (.phraseEnded, 4.1)]), "gap between words")
+        // The microphone starts nearly deaf (-68), the room is at -60: the floor follows it up, so silence ends the phrase.
+        // The microphone starts nearly deaf (-68) and the room's noise (-55…-60) passes for speech at once:
+        // the floor must still follow the room, so the quiet room ends the "phrase" instead of 60 s later.
+        let stuck = run([(-68, 0.3), (-55, 0.2), (-60, 6)])
+        expect(stuck.contains { $0.0 == .phraseEnded && $0.1 < 6 }, "deaf start, louder room ends")
     }
 }
 #endif
