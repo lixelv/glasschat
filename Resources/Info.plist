@@ -13,6 +13,8 @@
     <key>LSMinimumSystemVersion</key><string>26.0</string>
     <key>LSApplicationCategoryType</key><string>public.app-category.productivity</string>
     <key>NSHighResolutionCapable</key><true/>
+    <key>NSMicrophoneUsageDescription</key><string>GlassChat listens to what you say to the assistant in the notch.</string>
+    <key>NSSpeechRecognitionUsageDescription</key><string>GlassChat turns what you say to the assistant into text on this Mac.</string>
     <key>NSPrincipalClass</key><string>NSApplication</string>
 </dict>
 </plist>
