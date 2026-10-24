@@ -27,6 +27,18 @@ extension SelfTests {
         expect(near(run(talk), [(.speechStarted, 0.65), (.phraseEnded, 60.5)]), "phrase capped at 60 s")
         // The floor rose to -50 (under the -48 threshold): the threshold follows it.
         expect(near(run([(-60, 1), (-50, 3), (-35, 0.5), (-45, 2)]), [(.speechStarted, 4.15), (.phraseEnded, 6.0)]), "floor adapts")
+        // How long the phrase was actually voiced: a short burst of noise is not speech worth sending.
+        func voiced(_ segments: [(db: Double, seconds: Double)]) -> TimeInterval {
+            var detector = SilenceDetector(SilenceDetector.Config())
+            var t = 0.0
+            for segment in segments {
+                let end = t + segment.seconds
+                while t < end - 1e-9 { _ = detector.feed(segment.db, at: t); t += 0.02 }
+            }
+            return detector.voiced
+        }
+        expect(abs(voiced([(-60, 1), (-30, 1.2), (-60, 2)]) - 1.2) <= 0.05, "voiced time of a phrase")
+        expect(voiced([(-60, 1), (-35, 0.2), (-60, 2)]) < SilenceDetector.minimumVoiced, "a noise burst is too short")
         // A short gap between words is not the end.
         expect(near(run([(-60, 1), (-30, 0.5), (-60, 0.6), (-30, 0.5), (-60, 2)]), [(.speechStarted, 1.15), (.phraseEnded, 4.1)]), "gap between words")
         // The microphone starts nearly deaf (-68), the room is at -60: the floor follows it up, so silence ends the phrase.

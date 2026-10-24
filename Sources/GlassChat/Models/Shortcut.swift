@@ -11,7 +11,7 @@ struct Shortcut: Codable, Equatable, Sendable {
     /// What the key shows ("Space", "K"), kept from when it was recorded.
     var key: String
 
-    static let standard = Shortcut(keyCode: UInt32(kVK_Space), modifiers: [.shift], key: "Space")
+    static let standard = Shortcut(keyCode: UInt32(kVK_Space), modifiers: [.option, .shift], key: "Space")
 
     init(keyCode: UInt32, modifiers: NSEvent.ModifierFlags, key: String) {
         self.keyCode = keyCode

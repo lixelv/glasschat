@@ -8,6 +8,8 @@ let voiceLog = Logger(subsystem: "dev.lixelv.glasschat", category: "voice")
 struct Recording: Sendable {
     let url: URL
     let duration: TimeInterval
+    /// Seconds of it above the silence level.
+    var voiced: TimeInterval = 0
 }
 
 enum VoiceError: LocalizedError {
@@ -105,7 +107,7 @@ final class VoiceRecorder {
             voiceLog.debug("t=\(time, format: .fixed(precision: 2)) db=\(db, format: .fixed(precision: 1)) floor=\(self.detector.floor, format: .fixed(precision: 1)) speaking=\(self.detector.speaking) event=\(String(describing: event), privacy: .public)")
         }
         switch event {
-        case .phraseEnded?: end(writer.map { Recording(url: $0.url, duration: time) })
+        case .phraseEnded?: end(writer.map { Recording(url: $0.url, duration: time, voiced: detector.voiced) })
         case .noSpeech?: end(nil)
         default: break
         }

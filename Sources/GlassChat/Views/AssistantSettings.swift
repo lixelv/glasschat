@@ -51,7 +51,6 @@ struct AssistantSettings: View {
                     }
                 }
                 NumberField("Pause that ends a phrase", value: $settings.silencePause, range: 0.5...5, step: 0.1, unit: "s")
-                NumberField("Keep listening after an answer", value: $settings.followUpWindow, range: 0...60, step: 1, unit: "s")
                 IntField("Messages sent to the model", value: $settings.assistantContextLimit, range: 0...200)
             } header: {
                 Text("Listening")
@@ -103,6 +102,10 @@ struct AssistantSettings: View {
             Section {
                 DisclosureGroup("Advanced", isExpanded: $advanced) {
                     NumberField("Wait for speech after a click", value: $settings.speechWait, range: 2...30, step: 1, unit: "s")
+                    NumberField("Keep listening after an answer", value: $settings.followUpWindow, range: 0...60, step: 1, unit: "s")
+                    Text("0 s: after an answer the assistant waits for a click or the shortcut.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
                 }
             }
         }

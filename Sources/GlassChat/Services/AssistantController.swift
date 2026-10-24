@@ -28,6 +28,8 @@ final class AssistantController {
     private var session: (any TranscriptionSession)?
     /// The running conversation (listen → answer → listen again); nil when idle.
     private var cycle: Task<Void, Never>?
+    /// Which conversation is the current one: a cancelled one finishing late must not touch the next.
+    private var cycleID = UUID()
     /// Listening for the answer to a question card while the answer waits.
     private var questionListening = false
 
@@ -111,9 +113,11 @@ final class AssistantController {
         voiceLog.debug("listen requested, running: \(self.cycle != nil)")
         guard cycle == nil else { return }
         error = nil
+        let id = UUID()
+        cycleID = id
         cycle = Task { [weak self] in
-            await self?.converse()
-            self?.cycle = nil
+            await self?.converse(id)
+            if self?.cycleID == id { self?.cycle = nil }
         }
     }
 
@@ -121,17 +125,21 @@ final class AssistantController {
         voiceLog.debug("stop all")
         let id = chatID
         cycle?.cancel()
+        cycle = nil
+        cycleID = UUID()
         collapsed()
         ChatController.shared.stop(id)
         QuestionCenter.shared.dismiss(in: id)
         phase = .idle
     }
 
+    /// A new chat, and the notch goes on listening in it.
     func newConversation() {
         stopAll()
         _ = newChat()
         heard = ""
         error = nil
+        if isExpanded { listen() }
     }
 
     /// Reads the last answer aloud, or stops it.
@@ -155,9 +163,9 @@ final class AssistantController {
 
     // MARK: The loop
 
-    private func converse() async {
+    private func converse(_ id: UUID) async {
         var followUp = false
-        defer { if !questionListening { phase = .idle } }
+        defer { if !questionListening, cycleID == id { phase = .idle } }
         while !Task.isCancelled {
             guard let heard = await hear(followUp: followUp) else { return }
             let id = chatID
@@ -185,6 +193,8 @@ final class AssistantController {
                 if !isExpanded { hasUnreadAnswer = true }
                 return
             }
+            // 0 s in Settings: no listening after an answer.
+            guard settings.followUpWindow > 0 else { return }
             followUp = true
         }
     }
@@ -246,7 +256,15 @@ final class AssistantController {
                     self.session = nil
                     return nil
                 }
-                voiceLog.debug("phrase ended, duration \(recording.duration)")
+                voiceLog.debug("phrase ended, duration \(recording.duration), voiced \(recording.voiced)")
+                // A burst of noise: recognisers would make "Thank you." or "." of it. While waiting for a follow-up
+                // it ends the wait; after a click it is ignored.
+                if recording.voiced < SilenceDetector.minimumVoiced {
+                    session.cancel()
+                    self.session = nil
+                    try? FileManager.default.removeItem(at: recording.url)
+                    if followUp { return nil } else { continue }
+                }
                 phase = .transcribing
                 defer { try? FileManager.default.removeItem(at: recording.url) }
                 let text = try await session.finish(recording)
@@ -257,8 +275,10 @@ final class AssistantController {
                     heard = text
                     return Heard(text: text, audio: try AttachmentStore.importFile(at: recording.url))
                 }
-                // Nothing recognised: listen again in the same way.
-                guard !text.isEmpty else { continue }
+                // Nothing recognised (or only punctuation): listen again in the same way.
+                guard SpeechText.isWords(text) else {
+                    if followUp { return nil } else { continue }
+                }
                 heard = text
                 return Heard(text: text, audio: nil)
             } catch {

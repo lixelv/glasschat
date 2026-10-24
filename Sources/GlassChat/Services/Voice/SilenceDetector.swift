@@ -21,9 +21,15 @@ struct SilenceDetector {
 
     enum Event: Equatable { case speechStarted, phraseEnded, noSpeech }
 
+    /// Seconds of voice a phrase needs to be worth transcribing: less is a burst of noise
+    /// (that recognisers turn into "Thank you." or ".").
+    static let minimumVoiced: TimeInterval = 0.5
+
     private let config: Config
     private(set) var floor = -50.0
     private(set) var speaking = false
+    /// Seconds of the phrase above the silence level.
+    private(set) var voiced: TimeInterval = 0
     private var calibrationSum = 0.0
     private var calibrationCount = 0
     private var aboveSince: TimeInterval?
@@ -55,6 +61,7 @@ struct SilenceDetector {
                 if time - since >= config.startHold - eps {
                     speaking = true
                     speechStart = since
+                    voiced = time - since
                     return .speechStarted
                 }
             } else {
@@ -74,6 +81,7 @@ struct SilenceDetector {
             done = true
             return .phraseEnded
         }
+        if db >= floor + config.endMargin { voiced += dt }
         if db < floor + config.endMargin {
             let since = belowSince ?? time
             belowSince = since

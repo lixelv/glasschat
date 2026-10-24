@@ -31,4 +31,9 @@ enum SpeechText {
     static func voiceMatches(_ voiceLanguage: String, text language: String) -> Bool {
         voiceLanguage.lowercased().split(separator: "-").first.map(String.init) == language.lowercased()
     }
+
+    /// Whether a transcript holds a letter or a digit (recognisers write "." or "…" for noise).
+    static func isWords(_ text: String) -> Bool {
+        text.unicodeScalars.contains { CharacterSet.letters.contains($0) || CharacterSet.decimalDigits.contains($0) }
+    }
 }
