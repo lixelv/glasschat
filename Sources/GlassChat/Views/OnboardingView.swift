@@ -21,7 +21,28 @@ struct OnboardingView: View {
             }
             .padding(.top, 28)
 
-            if step == 0 {
+            if step == 2 {
+                Form {
+                    Section {
+                        VoiceModelsStatus()
+                    } header: {
+                        Text("Downloading the voice models")
+                    } footer: {
+                        Text("Whisper hears and Supertonic speaks, both on this Mac (about 1 GB). You can start now: the download goes on in the background, and Settings → Assistant shows it.")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .formStyle(.grouped)
+                .frame(height: 300)
+                .task { await VoiceModels.shared.downloadAll() }
+                HStack {
+                    Spacer()
+                    Button(VoiceModels.shared.isComplete ? "Done" : "Continue") { dismiss() }
+                        .buttonStyle(.glassProminent)
+                        .keyboardShortcut(.defaultAction)
+                }
+                .padding(16)
+            } else if step == 0 {
                 ModelConnectionEditor(role: .chat, doneTitle: "Continue", showsCancel: false, closes: false) { step = 1 }
             } else {
                 Form {
@@ -37,7 +58,7 @@ struct OnboardingView: View {
                 .frame(height: 380)
                 HStack {
                     Spacer()
-                    Button("Done") { dismiss() }
+                    Button("Continue") { step = 2 }
                         .buttonStyle(.glassProminent)
                         .keyboardShortcut(.defaultAction)
                 }

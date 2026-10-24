@@ -42,10 +42,12 @@ struct AssistantSettings: View {
                 RecognitionSettings()
             } header: {
                 Text("Speech Recognition")
+            } footer: {
+                footer("Until Whisper is downloaded, Apple hears.")
             }
 
             Section {
-                Picker("Language", selection: $settings.transcriptionLanguage) {
+                Picker("Apple Language", selection: $settings.transcriptionLanguage) {
                     Text("System Languages").tag("")
                     ForEach(locales, id: \.identifier) { locale in
                         Text(Locale.current.localizedString(forIdentifier: locale.identifier) ?? locale.identifier)
@@ -66,7 +68,6 @@ struct AssistantSettings: View {
                         Text(Self.voiceName(voice)).tag(voice.rawValue)
                     }
                 }
-                VoiceModelsStatus()
             } header: {
                 Text("Voice")
             } footer: {
@@ -74,22 +75,29 @@ struct AssistantSettings: View {
             }
 
             Section {
+                VoiceModelsStatus()
+            } header: {
+                Text("Voice Models")
+            }
+
+            Section {
+                Picker("Confirm Actions", selection: $settings.confirmActions) {
+                    ForEach(ConfirmMode.allCases, id: \.self) { Text($0.title).tag($0) }
+                }
+            } header: {
+                Text("Files and Terminal")
+            } footer: {
+                footer("Before app_write, app_edit and app_bash. In Auto the decision model judges each action and asks you about what it does not call safe — text the model read in files or on websites can sway it. Without a decision model, Auto always asks.")
+            }
+
+            Section {
                 TextEditor(text: $settings.assistantPrompt)
                     .font(.body)
-                    .frame(minHeight: 120)
-                    .overlay(alignment: .topLeading) {
-                        if settings.assistantPrompt.isEmpty {
-                            Text(AssistantPrompt.standard)
-                                .font(.body)
-                                .foregroundStyle(.tertiary)
-                                .padding(.leading, 5)
-                                .allowsHitTesting(false)
-                        }
-                    }
+                    .frame(minHeight: 180)
                 HStack {
                     Spacer()
-                    Button("Reset") { settings.assistantPrompt = "" }
-                        .disabled(settings.assistantPrompt.isEmpty)
+                    Button("Reset") { settings.assistantPrompt = AssistantPrompt.standard }
+                        .disabled(settings.assistantPrompt == AssistantPrompt.standard)
                 }
             } header: {
                 Text("Assistant Prompt")

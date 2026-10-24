@@ -15,6 +15,11 @@ extension SelfTests {
         expect(ContextWindow.slice(msgs("uau"), limit: 5).count == 3, "shorter than limit")
         expect(AssistantPrompt.effective("  ") == AssistantPrompt.standard, "blank prompt = standard")
         expect(AssistantPrompt.effective("Be brief") == "Be brief", "custom prompt kept")
+        expect(AssistantPrompt.standard.contains("glasschat__app_say") && AssistantPrompt.standard.contains("every"), "speaks on every request")
+        expect(AssistantPrompt.standard.contains("glasschat__search_tools"), "finds the hidden tools")
+        expect(AssistantPrompt.stored(nil) == AssistantPrompt.standard && AssistantPrompt.stored("") == AssistantPrompt.standard,
+               "an empty saved prompt becomes the real text")
+        expect(AssistantPrompt.stored("Mine") == "Mine", "a written prompt is kept")
     }
 }
 #endif

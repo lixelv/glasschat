@@ -43,28 +43,35 @@ Open **Settings (⌘,)** to change your connection, default model, or global sys
 ## Notch Assistant
 
 GlassChat also lives in the notch of your MacBook (a black pill at the top centre on screens without one).
-Click it and talk: when you pause, the phrase is transcribed and sent to a chat called **Assistant**, and the
-answer appears right under the notch. After an answer it keeps listening for a few seconds, so you can go on
-talking; then a click wakes it again. Esc or a click elsewhere folds it; an answer that is still being written
-carries on, and the notch pulses when it is ready.
+Click it, press **⌥ ⇧ Space**, or rest the pointer on it and talk. When you pause (or move the pointer away),
+the phrase is transcribed and sent to a chat called **Assistant**; the assistant answers with a short spoken
+reply and a slightly fuller text right under the notch. After an answer it keeps listening for a few seconds.
+While it listens, thinks or speaks, Esc, the shortcut or Stop folds it; otherwise a click elsewhere does too.
+
+Hearing and speaking run on your Mac. The first launch downloads two models (about 1 GB):
+**whisper-large-v3-turbo** (WhisperKit, CoreML) and **Supertonic 3** (ONNX Runtime). Until they are in, Apple's
+recognition hears and the macOS voice speaks.
 
 | Setting (Settings → Assistant) | Default |
 |---|---|
-| Assistant in the Notch | on (closing the window then keeps GlassChat running) |
-| Transcription Model | empty: on-device Apple recognition; e.g. `whisper-1` to use your server |
-| Language (Apple) | the system's |
+| Assistant in the Notch / Shortcut / Talk while hovering | on / ⌥ ⇧ Space / on |
+| Speech Recognition | Apple (in the languages of System Settings) or Whisper large-v3-turbo |
 | Pause that ends a phrase | 1.5 s |
-| Keep listening after an answer | 15 s |
 | Messages sent to the model | 16 (0: the whole chat) |
-| macOS Voice / TTS Model / TTS Voice | the system voice; e.g. `gpt-4o-mini-tts` + `alloy` |
-| Assistant Prompt | empty: the built-in one |
-| Advanced → Wait for speech after a click | 8 s |
+| Voice | Supertonic 3, Female 1 (the language follows the text) |
+| Files and Terminal → Confirm Actions | Auto (the decision model judges; Always ask; Never ask) |
+| Assistant Prompt | the built-in text, editable |
+| Advanced | wait for speech 8 s, rest on the notch 0.3 s, keep listening after an answer 15 s (0: off) |
 
-macOS asks once for the microphone and for speech recognition. The assistant can use every tool, and two more:
+macOS asks once for the microphone and for speech recognition. The assistant can use every tool, and:
 
-- `app_say` says a text aloud (the macOS voice or the TTS model). Every answer also has a **Speak** button.
+- `app_say` says a text aloud. Every answer also has a **Speak** button.
 - `app_ask_user` asks one to four questions with suggested answers: pick one, type your own (or say it, in the
   notch), skip, then **Confirm**.
+- `app_read`, `app_write`, `app_edit`, `app_bash` read and change files and run commands in zsh. Writing, editing
+  and commands are confirmed as set above: a red card asks **Allow**, **Allow in This Chat** or **Deny**.
+- Tools whose name starts with `_` (chats, models, MCP servers and their registry, and any such MCP tool) are not
+  offered to the model; it finds them with `search_tools`.
 
 ## Tools and MCP
 

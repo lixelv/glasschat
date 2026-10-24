@@ -56,7 +56,7 @@ final class AppSettings {
     var systemVoice: String { didSet { defaults.set(systemVoice, forKey: "systemVoice") } }
     /// The Supertonic voice ("F1"… "M5").
     var supertonicVoice: String { didSet { defaults.set(supertonicVoice, forKey: "supertonicVoice") } }
-    /// Empty: `AssistantPrompt.standard`.
+    /// The assistant's prompt as written in Settings (the standard text until it is changed).
     var assistantPrompt: String { didSet { defaults.set(assistantPrompt, forKey: "assistantPrompt") } }
     var assistantChatID: Chat.ID? { didSet { defaults.set(assistantChatID?.uuidString, forKey: "assistantChatID") } }
 
@@ -93,7 +93,7 @@ final class AppSettings {
         assistantContextLimit = defaults.object(forKey: "assistantContextLimit") as? Int ?? 16
         systemVoice = defaults.string(forKey: "systemVoice") ?? ""
         supertonicVoice = defaults.string(forKey: "supertonicVoice") ?? "F1"
-        assistantPrompt = defaults.string(forKey: "assistantPrompt") ?? ""
+        assistantPrompt = AssistantPrompt.stored(defaults.string(forKey: "assistantPrompt"))
         assistantChatID = defaults.string(forKey: "assistantChatID").flatMap(UUID.init(uuidString:))
     }
 
