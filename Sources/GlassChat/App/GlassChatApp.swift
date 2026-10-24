@@ -5,6 +5,12 @@ import SwiftUI
 struct GlassChatApp: App {
     @NSApplicationDelegateAdaptor private var delegate: AppDelegate
 
+    init() {
+        #if DEBUG
+        SelfTests.runIfRequested()
+        #endif
+    }
+
     var body: some Scene {
         WindowGroup {
             RootView()

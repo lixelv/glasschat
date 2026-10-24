@@ -2,7 +2,7 @@ import QuickLook
 import SwiftUI
 
 struct RootView: View {
-    @State private var controller = ChatController()
+    private let controller = ChatController.shared
     @State private var selection: Chat.ID?
     @State private var showOnboarding = false
     @State private var dropZone = DropZone()

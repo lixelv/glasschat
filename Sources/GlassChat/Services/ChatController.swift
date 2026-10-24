@@ -6,6 +6,10 @@ import Observation
 @Observable
 @MainActor
 final class ChatController {
+    /// One for the windows and the notch: its state is keyed by chat anyway.
+    static let shared = ChatController()
+    private init() {}
+
     private(set) var streaming: Set<Chat.ID> = []
     var errors: [Chat.ID: APIError] = [:]
     private var tasks: [Chat.ID: Task<Void, Never>] = [:]
@@ -47,10 +51,16 @@ final class ChatController {
 
         let prompt = (chat.systemPrompt ?? settings.systemPrompt).trimmingCharacters(in: .whitespacesAndNewlines)
         var turns: [JSONValue] = prompt.isEmpty ? [] : [.object(["role": .string("system"), "content": .string(prompt)])]
+        // The notch assistant's chat has a prompt of its own and sends only its last messages.
+        let isAssistant = id == settings.assistantChatID
+        if isAssistant {
+            turns.append(.object(["role": .string("system"), "content": .string(AssistantPrompt.effective(settings.assistantPrompt))]))
+        }
         if let note = missingCommandNote(chat) {
             turns.append(.object(["role": .string("system"), "content": .string(note)]))
         }
-        for message in store.chat(id)!.messages where message.id != assistant.id {
+        let history = store.chat(id)!.messages.filter { $0.id != assistant.id }
+        for message in ContextWindow.slice(history, limit: isAssistant ? settings.assistantContextLimit : 0) {
             turns += Self.turns(of: message)
         }
 

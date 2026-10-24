@@ -25,6 +25,30 @@ final class AppSettings {
     var decisionBaseURL: String { didSet { defaults.set(decisionBaseURL, forKey: "decisionBaseURL") } }
     var decisionToken: String { didSet { Keychain.setToken(decisionToken, Keychain.decisionAccount) } }
 
+    // MARK: Notch assistant
+
+    var assistantEnabled: Bool { didSet { defaults.set(assistantEnabled, forKey: "assistantEnabled") } }
+    /// The `/audio/transcriptions` model; empty: on-device Apple recognition.
+    var transcriptionModel: String { didSet { defaults.set(transcriptionModel, forKey: "transcriptionModel") } }
+    /// A locale identifier for Apple recognition; empty: the system's.
+    var transcriptionLanguage: String { didSet { defaults.set(transcriptionLanguage, forKey: "transcriptionLanguage") } }
+    /// Seconds of silence that end a phrase.
+    var silencePause: Double { didSet { defaults.set(silencePause, forKey: "silencePause") } }
+    /// Seconds the assistant keeps listening after an answer.
+    var followUpWindow: Double { didSet { defaults.set(followUpWindow, forKey: "followUpWindow") } }
+    /// Seconds it waits for speech after a click.
+    var speechWait: Double { didSet { defaults.set(speechWait, forKey: "speechWait") } }
+    /// Messages of the assistant chat sent to the model; 0: all.
+    var assistantContextLimit: Int { didSet { defaults.set(assistantContextLimit, forKey: "assistantContextLimit") } }
+    /// An `AVSpeechSynthesisVoice` identifier; empty: the voice of the system language.
+    var systemVoice: String { didSet { defaults.set(systemVoice, forKey: "systemVoice") } }
+    /// The `/audio/speech` model; empty: the macOS voice.
+    var ttsModel: String { didSet { defaults.set(ttsModel, forKey: "ttsModel") } }
+    var ttsVoice: String { didSet { defaults.set(ttsVoice, forKey: "ttsVoice") } }
+    /// Empty: `AssistantPrompt.standard`.
+    var assistantPrompt: String { didSet { defaults.set(assistantPrompt, forKey: "assistantPrompt") } }
+    var assistantChatID: Chat.ID? { didSet { defaults.set(assistantChatID?.uuidString, forKey: "assistantChatID") } }
+
     private init() {
         baseURL = defaults.string(forKey: "baseURL") ?? Self.defaultBaseURL
         defaultModel = defaults.string(forKey: "defaultModel") ?? ""
@@ -35,6 +59,18 @@ final class AppSettings {
         decisionTopN = defaults.object(forKey: "decisionTopN") as? Int ?? 4
         decisionBaseURL = defaults.string(forKey: "decisionBaseURL") ?? ""
         decisionToken = Keychain.token(Keychain.decisionAccount) ?? ""
+        assistantEnabled = defaults.object(forKey: "assistantEnabled") as? Bool ?? true
+        transcriptionModel = defaults.string(forKey: "transcriptionModel") ?? ""
+        transcriptionLanguage = defaults.string(forKey: "transcriptionLanguage") ?? ""
+        silencePause = defaults.object(forKey: "silencePause") as? Double ?? 1.5
+        followUpWindow = defaults.object(forKey: "followUpWindow") as? Double ?? 15
+        speechWait = defaults.object(forKey: "speechWait") as? Double ?? 8
+        assistantContextLimit = defaults.object(forKey: "assistantContextLimit") as? Int ?? 16
+        systemVoice = defaults.string(forKey: "systemVoice") ?? ""
+        ttsModel = defaults.string(forKey: "ttsModel") ?? ""
+        ttsVoice = defaults.string(forKey: "ttsVoice") ?? "alloy"
+        assistantPrompt = defaults.string(forKey: "assistantPrompt") ?? ""
+        assistantChatID = defaults.string(forKey: "assistantChatID").flatMap(UUID.init(uuidString:))
     }
 
     /// Where and with which token the decision model is asked.
