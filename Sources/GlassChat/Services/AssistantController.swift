@@ -164,6 +164,7 @@ final class AssistantController {
         collapsed()
         ChatController.shared.stop(id)
         QuestionCenter.shared.dismiss(in: id)
+        ApprovalCenter.shared.dismiss(in: id)
         phase = .idle
     }
 
@@ -245,6 +246,8 @@ final class AssistantController {
     /// Waits for the answer; a question card it shows is answered by voice (the notch opens for it).
     private func waitForAnswer(_ id: Chat.ID) async {
         while ChatController.shared.isStreaming(id), !Task.isCancelled {
+            // An action to allow: the notch opens for its card.
+            if ApprovalCenter.shared.pending[id] != nil, !isExpanded { NotchPanelController.shared.expand() }
             if QuestionCenter.shared.pending[id] != nil, !questionListening, !Speaker.shared.isSpeaking {
                 if !isExpanded { NotchPanelController.shared.expand() }
                 questionListening = true

@@ -307,6 +307,7 @@ final class ChatController {
 
     func delete(_ id: Chat.ID) {
         QuestionCenter.shared.dismiss(in: id)
+        ApprovalCenter.shared.dismiss(in: id)
         tasks[id]?.cancel()
         tasks[id] = nil
         streaming.remove(id)

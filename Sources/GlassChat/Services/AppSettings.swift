@@ -26,6 +26,8 @@ final class AppSettings {
     var decisionConnection: ModelConnection { didSet { save(decisionConnection, .decision) } }
     var transcriptionConnection: ModelConnection { didSet { save(transcriptionConnection, .transcription) } }
     var speechConnection: ModelConnection { didSet { save(speechConnection, .speech) } }
+    /// When the file and terminal tools ask first.
+    var confirmActions: ConfirmMode { didSet { defaults.set(confirmActions.rawValue, forKey: "confirmActions") } }
     var recognitionMode: RecognitionMode { didSet { defaults.set(recognitionMode.rawValue, forKey: "recognitionMode") } }
 
     // MARK: Notch assistant
@@ -80,6 +82,7 @@ final class AppSettings {
         transcriptionConnection = transcription
         speechConnection = Self.load(.speech) ?? ModelConnection(
             provider: .openAI, baseURL: "", model: defaults.string(forKey: "ttsModel") ?? "", sameAsDefault: true)
+        confirmActions = defaults.string(forKey: "confirmActions").flatMap(ConfirmMode.init(rawValue:)) ?? .default
         recognitionMode = defaults.string(forKey: "recognitionMode").flatMap(RecognitionMode.init(rawValue:))
             ?? (transcription.model.isEmpty ? .default : .provider)
         assistantEnabled = defaults.object(forKey: "assistantEnabled") as? Bool ?? true

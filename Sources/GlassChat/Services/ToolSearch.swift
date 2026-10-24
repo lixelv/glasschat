@@ -32,52 +32,18 @@ enum ToolSearch {
         let exact = candidates.keys.filter { $0.lowercased() == wanted || $0.lowercased().hasSuffix("__" + wanted) }
         if !exact.isEmpty { return exact.sorted().map { Hit(name: $0, probability: nil) } }
         guard let endpoint else { return Array(wordSearch(query, candidates).prefix(limit)) }
-        let ranked = try await decide(query, candidates, model: endpoint.model, base: endpoint.url, token: endpoint.token)
+        let ranked = try await decide(query, candidates, endpoint: endpoint)
         return Array(ranked.prefix(limit))
     }
 
-    /// Asks the decision model which option fits; options are ranked by their probabilities.
-    private static func decide(_ query: String, _ candidates: [String: String], model: String, base: URL, token: String) async throws -> [Hit] {
-        var root = base.absoluteString
-        if root.hasSuffix("/v1") { root.removeLast(3) }
-        guard let url = URL(string: root + "/alpha/decisions") else { throw MCPError(message: "Bad decision URL") }
-        let criteria = candidates.mapValues { JSONValue.string(String($0.prefix(400))) }
-        let body: JSONValue = .object([
-            "model": .string(model),
-            "state": .string("An assistant needs a tool for this: \(query)"),
-            "questions": .object([
-                "tool": .object([
-                    "type": .string("choice"),
-                    "instructions": .string("Which tool does the assistant need for the request? Each option is a tool, described by what it does."),
-                    "criteria": .object(criteria),
-                ]),
-            ]),
-        ])
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 60
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.httpBody = try JSONEncoder().encode(body)
-        let (data, response) = try await URLSession.shared.data(for: request)
-        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
-        let json = try? JSONDecoder().decode(JSONValue.self, from: data)
-        guard (200..<300).contains(status), let answer = json?["answers"]?["tool"] else {
-            let message = json?["error"]?["message"]?.string ?? json?["error"]?.string
-                ?? String(decoding: data.prefix(300), as: UTF8.self)
-            throw MCPError(message: "The decision model \(model) answered \(status): \(message)")
-        }
-        var hits: [Hit] = []
-        if case .object(let probabilities)? = answer["probabilities"] {
-            for (name, value) in probabilities where candidates[name] != nil {
-                if case .number(let p) = value { hits.append(Hit(name: name, probability: p)) }
-            }
-            hits.sort { ($0.probability ?? 0) > ($1.probability ?? 0) }
-        }
-        if let choice = answer["choice"]?.string, candidates[choice] != nil, !hits.contains(where: { $0.name == choice }) {
-            hits.insert(Hit(name: choice, probability: nil), at: 0)
-        }
-        return hits
+    /// Asks the decision model which tool fits; tools are ranked by their probabilities.
+    private static func decide(_ query: String, _ candidates: [String: String], endpoint: ModelEndpoint) async throws -> [Hit] {
+        let probabilities = try await Decisions.choose(
+            state: "An assistant needs a tool for this: \(query)",
+            instructions: "Which tool does the assistant need for the request? Each option is a tool, described by what it does.",
+            options: candidates, endpoint: endpoint)
+        return probabilities.map { Hit(name: $0.key, probability: $0.value) }
+            .sorted { ($0.probability ?? 0) > ($1.probability ?? 0) }
     }
 
     /// Without a decision model: tools ranked by how many words of the query their name and description share.

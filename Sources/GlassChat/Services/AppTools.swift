@@ -228,6 +228,15 @@ enum AppTool: String, CaseIterable, Sendable {
         case .read, .write, .edit:
             guard let raw = args["path"]?.string, !raw.isEmpty else { throw MCPError(message: "A \"path\" is needed.") }
             let url = FileTools.resolvePath(raw, cwd: await ShellRunner.shared.workingDirectory(for: chatID))
+            if self == .write {
+                try await ActionGate.check(PendingAction(tool: self, summary: "Write \(url.path)",
+                                                         detail: String((args["content"]?.string ?? "").prefix(1500)), dangerous: false),
+                                           callID: callID, chat: chatID)
+            } else if self == .edit {
+                let detail = "- \((args["old_string"]?.string ?? "").prefix(700))\n+ \((args["new_string"]?.string ?? "").prefix(700))"
+                try await ActionGate.check(PendingAction(tool: self, summary: "Edit \(url.path)", detail: detail, dangerous: false),
+                                           callID: callID, chat: chatID)
+            }
             switch self {
             case .read:
                 return try FileTools.read(url, offset: args["offset"]?.int, limit: args["limit"]?.int)
@@ -245,6 +254,9 @@ enum AppTool: String, CaseIterable, Sendable {
         case .bash:
             guard let command = text("command") else { throw MCPError(message: "A \"command\" is needed.") }
             let timeout = min(max(args["timeout"]?.double ?? ShellRunner.defaultTimeout, 1), ShellRunner.maxTimeout)
+            let folder = await ShellRunner.shared.workingDirectory(for: chatID).path
+            try await ActionGate.check(PendingAction(tool: self, summary: "Run a command in \(folder)", detail: command, dangerous: false),
+                                       callID: callID, chat: chatID)
             let result = await ShellRunner.shared.run(command, in: chatID, timeout: timeout)
             var reply = result.output.isEmpty ? "(no output)" : result.output
             if result.timedOut { reply += "\nTimed out after \(Int(timeout)) s." }

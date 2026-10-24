@@ -55,6 +55,9 @@ struct MessageRow: View {
                     if let asking = QuestionCenter.shared.pending[chatID], step.calls.contains(where: { $0.id == asking.callID }) {
                         QuestionCard(chatID: chatID)
                     }
+                    if let approval = ApprovalCenter.shared.pending[chatID], step.calls.contains(where: { $0.id == approval.callID }) {
+                        ActionApprovalCard(chatID: chatID)
+                    }
                 }
                 if message.isPartial && message.content.isEmpty {
                     // Waiting for the model (also after the tools of a step have answered).

@@ -42,6 +42,9 @@ struct AssistantNotchContent: View {
                     if QuestionCenter.shared.pending[id] != nil {
                         QuestionCard(chatID: id)
                     }
+                    if ApprovalCenter.shared.pending[id] != nil {
+                        ActionApprovalCard(chatID: id)
+                    }
                     if let error = assistant.error {
                         HStack(alignment: .firstTextBaseline, spacing: 6) {
                             Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
