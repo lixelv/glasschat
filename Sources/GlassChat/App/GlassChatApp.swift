@@ -60,6 +60,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         MCPManager.shared.syncConnections()
         if AppSettings.shared.assistantEnabled { NotchPanelController.shared.install() }
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["GLASSCHAT_NOTCH_DEMO"] == "1" { NotchDemo.start() }
+        #endif
         NotificationCenter.default.addObserver(forName: .assistantToggled, object: nil, queue: .main) { _ in
             Task { @MainActor in
                 if AppSettings.shared.assistantEnabled { NotchPanelController.shared.install() } else { NotchPanelController.shared.uninstall() }
@@ -80,3 +83,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 extension Notification.Name {
     static let newChat = Notification.Name("GlassChat.newChat")
 }
+
+#if DEBUG
+/// GLASSCHAT_NOTCH_DEMO=1: the notch's face and bars go through every mood, to look at them.
+@MainActor
+enum NotchDemo {
+    static func start() {
+        let model = NotchPanelController.shared.model
+        let moods: [(AssistantAvatar.Mood, Waveform.Mode)] = [(.idle, .idle), (.listening, .input), (.thinking, .wave), (.speaking, .output), (.error, .idle)]
+        Task { @MainActor in
+            var i = 0
+            while true {
+                (model.mood, model.wave) = moods[(i / 60) % moods.count]
+                model.level = 0.5 + 0.5 * sin(Double(i) / 3)
+                i += 1
+                try? await Task.sleep(for: .milliseconds(33))
+            }
+        }
+    }
+}
+#endif

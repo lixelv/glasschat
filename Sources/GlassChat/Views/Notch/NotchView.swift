@@ -11,6 +11,12 @@ final class NotchModel {
     var isBusy = false
     /// An answer came while folded.
     var hasUnread = false
+    /// What the header shows beside the notch.
+    var mood: AssistantAvatar.Mood = .idle
+    var wave: Waveform.Mode = .idle
+    var level = 0.0
+    /// Tapping the face (expanded).
+    var onAvatarTap: (() -> Void)?
     /// The height of the expanded body, measured.
     var contentHeight: CGFloat = 0
     var onExpand: (() -> Void)?
@@ -49,7 +55,7 @@ struct NotchView<Content: View>: View {
         let size = model.shapeSize
         let ear: CGFloat = 6
         VStack(spacing: 0) {
-            Color.clear.frame(height: model.notchSize.height)
+            header
             if model.state == .expanded {
                 content()
                     .frame(width: NotchGeometry.expandedWidth)
@@ -68,5 +74,43 @@ struct NotchView<Content: View>: View {
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: model.state)
         .animation(.spring(response: 0.4, dampingFraction: 0.8), value: model.contentHeight)
         .environment(\.colorScheme, .dark)
+    }
+
+    /// The face left of the notch, the bars right of it (small while folded).
+    @ViewBuilder private var header: some View {
+        let state = model.state
+        let expanded = state == .expanded
+        HStack(spacing: 0) {
+            if state != .closed {
+                AssistantAvatar(mood: model.mood, level: model.level, size: expanded ? 20 : 14)
+                    .onTapGesture { if expanded { model.onAvatarTap?() } }
+                    .padding(.leading, expanded ? 10 : 4)
+                Spacer(minLength: model.notchSize.width)
+                Group {
+                    if model.hasUnread && !expanded {
+                        PulsingDot()
+                    } else {
+                        Waveform(mode: model.wave, level: model.level, bars: expanded ? 6 : 3,
+                                 maxHeight: model.notchSize.height - (expanded ? 10 : 14))
+                    }
+                }
+                .padding(.trailing, expanded ? 14 : 8)
+                .transition(.opacity)
+            }
+        }
+        .frame(height: model.notchSize.height)
+    }
+}
+
+/// An answer is waiting.
+private struct PulsingDot: View {
+    @State private var on = false
+    var body: some View {
+        Circle()
+            .fill(.white)
+            .frame(width: 6, height: 6)
+            .opacity(on ? 1 : 0.4)
+            .animation(.easeInOut(duration: 0.6).repeatForever(autoreverses: true), value: on)
+            .onAppear { on = true }
     }
 }
