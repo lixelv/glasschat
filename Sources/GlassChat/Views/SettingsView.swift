@@ -5,9 +5,10 @@ struct SettingsView: View {
         TabView {
             Tab("Connection", systemImage: "network") { ConnectionSettings() }
             Tab("Prompt", systemImage: "text.bubble") { PromptSettings() }
+            Tab("Assistant", systemImage: "waveform") { AssistantSettings() }
             Tab("MCP", systemImage: "hammer") { MCPSettings() }
         }
-        .frame(width: 600, height: 460)
+        .frame(width: 600, height: 560)
     }
 }
 
