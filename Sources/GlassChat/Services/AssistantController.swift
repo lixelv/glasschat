@@ -86,6 +86,8 @@ final class AssistantController {
     }
 
     func expanded() {
+        // Local Whisper loads its model while the user starts talking.
+        if settings.recognitionMode == .localWhisper { Task { await LocalWhisper.shared.warmUp() } }
         hasUnreadAnswer = false
         error = nil
         if !ChatController.shared.isStreaming(chatID) { listen() }

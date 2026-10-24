@@ -42,7 +42,7 @@ struct RecognitionSettings: View {
                 Text("Homebrew is not installed. Install opens Terminal (it asks for your password), then press Install again.")
                     .font(.callout).foregroundStyle(.secondary)
             case .needsInstall:
-                Text("whisper.cpp and the model (about 550 MB) are not installed yet.")
+                Text("whisper.cpp or its model (about 550 MB) is not installed yet.")
                     .font(.callout).foregroundStyle(.secondary)
             case .installing(let step):
                 ProgressView().controlSize(.small)

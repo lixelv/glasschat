@@ -74,6 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         ChatStore.shared.saveNow()
+        LocalWhisper.shared.stopServer()
     }
 
     /// With the notch assistant the app keeps running without windows; the Dock icon opens one again.

@@ -21,6 +21,9 @@ final class LocalWhisper {
     }
 
     private(set) var state = State.checking
+    /// whisper-server keeps the model loaded: a phrase takes a second instead of reloading it each time.
+    private var server: Process?
+    private static let serverURL = URL(string: "http://127.0.0.1:2077/inference")!
 
     static let modelName = "ggml-large-v3-turbo-q5_0.bin"
     static let modelURL = URL(string: "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin")!
@@ -81,9 +84,75 @@ final class LocalWhisper {
         guard let cli = tool("whisper-cli"), FileManager.default.fileExists(atPath: modelFile.path) else {
             throw MCPError(message: "Whisper is not installed yet: Settings → Assistant → Install.")
         }
+        if await warmUp() {
+            do { return try await transcribeOnServer(wav) }
+            catch { voiceLog.error("whisper-server failed, using whisper-cli: \(error.localizedDescription, privacy: .public)") }
+        }
         let (status, output) = try await Self.run(cli, ["-m", modelFile.path, "-f", wav.path, "-l", "auto", "-nt", "-np"], errors: false)
         guard status == 0 else { throw MCPError(message: "whisper-cli failed: \(output.suffix(300))") }
         return output.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Starts whisper-server (once) and waits until it answers; false when it cannot run.
+    @discardableResult
+    func warmUp() async -> Bool {
+        if let warming { return await warming.value }
+        let task = Task { await startServer() }
+        warming = task
+        let ready = await task.value
+        warming = nil
+        return ready
+    }
+
+    private var warming: Task<Bool, Never>?
+
+    private func startServer() async -> Bool {
+        if let server, server.isRunning, await Self.serverAnswers() { return true }
+        stopServer()
+        guard let program = tool("whisper-server"), FileManager.default.fileExists(atPath: modelFile.path) else { return false }
+        let process = Process()
+        process.executableURL = program
+        process.arguments = ["-m", modelFile.path, "-l", "auto", "-nt", "--host", "127.0.0.1", "--port", "2077"]
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return false }
+        server = process
+        // Loading the model takes a few seconds.
+        for _ in 0..<60 {
+            if await Self.serverAnswers() { return true }
+            guard process.isRunning else { return false }
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        return false
+    }
+
+    func stopServer() {
+        server?.terminate()
+        server = nil
+    }
+
+    private nonisolated static func serverAnswers() async -> Bool {
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:2077/")!)
+        request.timeoutInterval = 1
+        return (try? await URLSession.shared.data(for: request)) != nil
+    }
+
+    private func transcribeOnServer(_ wav: URL) async throws -> String {
+        var form = MultipartForm()
+        form.add(file: "file", filename: "speech.wav", mimeType: "audio/wav", data: try Data(contentsOf: wav))
+        form.add("response_format", "text")
+        var request = URLRequest(url: Self.serverURL)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 120
+        request.setValue(form.contentType, forHTTPHeaderField: "Content-Type")
+        request.httpBody = form.body
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+            throw MCPError(message: "whisper-server answered \((response as? HTTPURLResponse)?.statusCode ?? 0).")
+        }
+        return String(decoding: data, as: UTF8.self).split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }.joined(separator: " ")
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
