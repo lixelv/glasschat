@@ -17,6 +17,9 @@ final class NotchModel {
     var level = 0.0
     /// Tapping the face (expanded).
     var onAvatarTap: (() -> Void)?
+    /// The pointer rested on the folded notch long enough, and left it.
+    var onHoverTalk: (() -> Void)?
+    var onHoverEnd: (() -> Void)?
     /// The height of the expanded body, measured.
     var contentHeight: CGFloat = 0
     var onExpand: (() -> Void)?

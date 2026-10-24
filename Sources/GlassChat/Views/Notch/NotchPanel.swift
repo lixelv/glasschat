@@ -129,12 +129,39 @@ final class NotchPanelController {
         return window.convertPoint(toScreen: event.locationInWindow)
     }
 
+    /// Whether the pointer is on the notch, and the wait before talking while it rests there.
+    private var pointerInside = false
+    private var hoverWait: Task<Void, Never>?
+
     private func track(_ point: CGPoint) {
         guard let panel else { return }
         let inside = shapeFrame.contains(point)
+        if inside != pointerInside {
+            pointerInside = inside
+            inside ? pointerEntered() : pointerLeft()
+        }
         panel.ignoresMouseEvents = !inside
         if !model.isExpanded, model.isHovering != inside { model.isHovering = inside }
         if inside, model.isExpanded, !panel.isKeyWindow { panel.makeKey() }
+    }
+
+    private func pointerEntered() {
+        let settings = AppSettings.shared
+        let delay = settings.hoverDelay
+        hoverWait?.cancel()
+        hoverWait = Task { @MainActor in
+            try? await Task.sleep(for: .seconds(delay))
+            guard !Task.isCancelled, pointerInside,
+                  HoverTalk.shouldStart(hovered: delay, delay: delay, enabled: settings.hoverToTalk,
+                                        expanded: model.isExpanded, busy: model.isBusy) else { return }
+            model.onHoverTalk?()
+        }
+    }
+
+    private func pointerLeft() {
+        hoverWait?.cancel()
+        hoverWait = nil
+        model.onHoverEnd?()
     }
 
     /// A click anywhere but on the open panel: one that went through the transparent panel onto the notch's

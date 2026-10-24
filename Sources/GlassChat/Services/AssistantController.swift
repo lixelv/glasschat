@@ -32,6 +32,8 @@ final class AssistantController {
     private var cycleID = UUID()
     /// Listening for the answer to a question card while the answer waits.
     private var questionListening = false
+    /// Recording while the pointer rests on the folded notch.
+    private var hoverTalking = false
 
     private init() {}
 
@@ -76,6 +78,8 @@ final class AssistantController {
         model.onExpand = { [weak self] in self?.expanded() }
         model.onCollapse = { [weak self] in self?.collapsed() }
         model.onAvatarTap = { [weak self] in self?.listen() }
+        model.onHoverTalk = { [weak self] in self?.hoverStarted() }
+        model.onHoverEnd = { [weak self] in self?.hoverEnded() }
         Task { @MainActor [weak self, weak model] in
             while let self, let model {
                 model.mood = mood
@@ -121,6 +125,36 @@ final class AssistantController {
         }
     }
 
+    /// The pointer rests on the folded notch: record until it leaves.
+    func hoverStarted() {
+        guard cycle == nil, !isExpanded else { return }
+        voiceLog.debug("hover talk started")
+        error = nil
+        let id = UUID()
+        cycleID = id
+        hoverTalking = true
+        cycle = Task { [weak self] in
+            guard let self else { return }
+            let first = await self.hearWhileHovering()
+            self.hoverTalking = false
+            if let first {
+                await self.converse(id, first: first)
+            } else if self.cycleID == id {
+                self.phase = .idle
+            }
+            if self.cycleID == id { self.cycle = nil }
+        }
+    }
+
+    /// The pointer left the notch: the phrase is over.
+    func hoverEnded() {
+        guard hoverTalking else { return }
+        voiceLog.debug("hover talk ended")
+        // Before the recording started, this keeps it from starting (nothing would end it).
+        hoverTalking = false
+        recorder.finish()
+    }
+
     func stopAll() {
         voiceLog.debug("stop all")
         let id = chatID
@@ -163,11 +197,20 @@ final class AssistantController {
 
     // MARK: The loop
 
-    private func converse(_ id: UUID) async {
+    /// `first`: a phrase already heard (by hovering) to send before listening.
+    private func converse(_ id: UUID, first: Heard? = nil) async {
         var followUp = false
+        var pending = first
         defer { if !questionListening, cycleID == id { phase = .idle } }
         while !Task.isCancelled {
-            guard let heard = await hear(followUp: followUp) else { return }
+            let heard: Heard
+            if let phrase = pending {
+                heard = phrase
+                pending = nil
+            } else {
+                guard let phrase = await hear(followUp: followUp) else { return }
+                heard = phrase
+            }
             let id = chatID
             // With "Audio to the Model" the recording is the message; the words are only shown.
             if let audio = heard.audio {
@@ -224,6 +267,70 @@ final class AssistantController {
         let audio: Attachment?
     }
 
+    /// The text of a recorded phrase (and the recording itself with "Audio to the Model"); nil without words.
+    private func transcribe(_ recording: Recording, with session: any TranscriptionSession) async throws -> Heard? {
+        phase = .transcribing
+        defer { try? FileManager.default.removeItem(at: recording.url) }
+        let text = try await session.finish(recording)
+        self.session = nil
+        guard !Task.isCancelled else { return nil }
+        voiceLog.debug("transcribed: \(text, privacy: .public)")
+        if settings.recognitionMode == .audioToModel {
+            heard = text
+            return Heard(text: text, audio: try AttachmentStore.importFile(at: recording.url))
+        }
+        guard SpeechText.isWords(text) else { return nil }
+        heard = text
+        return Heard(text: text, audio: nil)
+    }
+
+    /// Records while the pointer rests on the notch; when it leaves, opens the notch with what was said,
+    /// or drops the recording when nothing was.
+    private func hearWhileHovering() async -> Heard? {
+        let allowed = await VoiceRecorder.requestAccess()
+        guard allowed, !Task.isCancelled else {
+            if !allowed { microphoneDenied = true }
+            return nil
+        }
+        do {
+            let format = try recorder.inputFormat()
+            phase = .listening(followUp: false)
+            heard = ""
+            let session = try await Transcription.start(
+                inputFormat: format,
+                onPartial: { [weak self] text in self?.heard = text },
+                onProgress: { [weak self] progress in self?.downloadProgress = progress })
+            guard !Task.isCancelled, hoverTalking else {
+                session.cancel()
+                return nil
+            }
+            self.session = session
+            // No pause ends it: the pointer leaving does (`finish`).
+            var config = SilenceDetector.Config()
+            config.silence = .infinity
+            config.wait = .infinity
+            guard let recording = try await recorder.record(config, onBuffer: { session.append($0) }) else {
+                session.cancel()
+                self.session = nil
+                return nil
+            }
+            guard HoverTalk.outcome(voiced: recording.voiced) == .open else {
+                voiceLog.debug("hover talk dropped, voiced \(recording.voiced)")
+                session.cancel()
+                self.session = nil
+                try? FileManager.default.removeItem(at: recording.url)
+                return nil
+            }
+            NotchPanelController.shared.expand()
+            return try await transcribe(recording, with: session)
+        } catch {
+            session?.cancel()
+            session = nil
+            if !(Task.isCancelled || error is CancellationError) { self.error = error.localizedDescription }
+            return nil
+        }
+    }
+
     /// One phrase; nil when nothing was said in time, it was cancelled or it failed (`error`).
     private func hear(followUp: Bool) async -> Heard? {
         let allowed = await VoiceRecorder.requestAccess()
@@ -265,22 +372,12 @@ final class AssistantController {
                     try? FileManager.default.removeItem(at: recording.url)
                     if followUp { return nil } else { continue }
                 }
-                phase = .transcribing
-                defer { try? FileManager.default.removeItem(at: recording.url) }
-                let text = try await session.finish(recording)
-                self.session = nil
-                guard !Task.isCancelled else { return nil }
-                voiceLog.debug("transcribed: \(text, privacy: .public)")
-                if settings.recognitionMode == .audioToModel {
-                    heard = text
-                    return Heard(text: text, audio: try AttachmentStore.importFile(at: recording.url))
-                }
-                // Nothing recognised (or only punctuation): listen again in the same way.
-                guard SpeechText.isWords(text) else {
+                guard let phrase = try await transcribe(recording, with: session) else {
+                    guard !Task.isCancelled else { return nil }
+                    // Nothing recognised (or only punctuation): listen again in the same way.
                     if followUp { return nil } else { continue }
                 }
-                heard = text
-                return Heard(text: text, audio: nil)
+                return phrase
             } catch {
                 if Task.isCancelled || error is CancellationError {
                     session?.cancel()

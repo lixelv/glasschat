@@ -37,6 +37,7 @@ final class VoiceRecorder {
 
     private let engine = AVAudioEngine()
     private var detector = SilenceDetector(.init())
+    private var elapsed: TimeInterval = 0
     private var writer: PhraseWriter?
     private var continuation: CheckedContinuation<Recording?, Never>?
 
@@ -86,6 +87,12 @@ final class VoiceRecorder {
         }
     }
 
+    /// Ends the recording now and keeps it, with how much of it was voice (the pointer left the notch).
+    func finish() {
+        guard isRecording, let writer else { return }
+        end(Recording(url: writer.url, duration: elapsed, voiced: detector.voiced))
+    }
+
     func cancel() {
         voiceLog.debug("recording cancelled")
         end(nil)
@@ -101,6 +108,7 @@ final class VoiceRecorder {
 
     private func heard(_ db: Double, at time: TimeInterval) {
         guard isRecording else { return }
+        elapsed = time
         level = min(max((db + 60) / 50, 0), 1)
         let event = detector.feed(db, at: time)
         if Int(time * 50) % 10 == 0 || event != nil {

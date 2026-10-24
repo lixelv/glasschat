@@ -31,6 +31,10 @@ final class AppSettings {
     // MARK: Notch assistant
 
     var assistantEnabled: Bool { didSet { defaults.set(assistantEnabled, forKey: "assistantEnabled") } }
+    /// Resting the pointer on the folded notch records until it leaves.
+    var hoverToTalk: Bool { didSet { defaults.set(hoverToTalk, forKey: "hoverToTalk") } }
+    /// Seconds the pointer rests on the notch before it records.
+    var hoverDelay: Double { didSet { defaults.set(hoverDelay, forKey: "hoverDelay") } }
     /// The shortcut that opens the notch from any app; nil: none.
     var assistantShortcut: Shortcut? {
         didSet {
@@ -79,6 +83,8 @@ final class AppSettings {
         recognitionMode = defaults.string(forKey: "recognitionMode").flatMap(RecognitionMode.init(rawValue:))
             ?? (transcription.model.isEmpty ? .default : .provider)
         assistantEnabled = defaults.object(forKey: "assistantEnabled") as? Bool ?? true
+        hoverToTalk = defaults.object(forKey: "hoverToTalk") as? Bool ?? true
+        hoverDelay = defaults.object(forKey: "hoverDelay") as? Double ?? 0.3
         switch defaults.object(forKey: "assistantShortcut") {
         case let data as Data: assistantShortcut = (try? JSONDecoder().decode(Shortcut.self, from: data)) ?? .standard
         case "off" as String: assistantShortcut = nil

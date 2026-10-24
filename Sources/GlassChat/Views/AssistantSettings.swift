@@ -30,10 +30,12 @@ struct AssistantSettings: View {
                     }
                 ShortcutRecorder()
                     .disabled(!settings.assistantEnabled)
+                Toggle("Talk while hovering the notch", isOn: $settings.hoverToTalk)
+                    .disabled(!settings.assistantEnabled)
             } header: {
                 Text("Notch Assistant")
             } footer: {
-                footer("Click the notch or press the shortcut to talk. While the assistant listens, thinks or speaks, Esc, the shortcut or Stop folds it; otherwise a click elsewhere does too. Closing the window keeps GlassChat running while this is on.")
+                footer("Click the notch, press the shortcut, or rest the pointer on it and talk (moving away sends what you said). While the assistant listens, thinks or speaks, Esc, the shortcut or Stop folds it; otherwise a click elsewhere does too. Closing the window keeps GlassChat running while this is on.")
             }
 
             Section {
@@ -102,6 +104,7 @@ struct AssistantSettings: View {
             Section {
                 DisclosureGroup("Advanced", isExpanded: $advanced) {
                     NumberField("Wait for speech after a click", value: $settings.speechWait, range: 2...30, step: 1, unit: "s")
+                    NumberField("Rest on the notch before talking", value: $settings.hoverDelay, range: 0.1...2, step: 0.1, unit: "s")
                     NumberField("Keep listening after an answer", value: $settings.followUpWindow, range: 0...60, step: 1, unit: "s")
                     Text("0 s: after an answer the assistant waits for a click or the shortcut.")
                         .font(.caption)
