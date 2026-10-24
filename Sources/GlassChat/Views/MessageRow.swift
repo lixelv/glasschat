@@ -63,6 +63,7 @@ struct MessageRow: View {
                     HStack(spacing: 10) {
                         HStack(spacing: 12) {
                             action(copied ? "Copied" : "Copy", copied ? "checkmark" : "doc.on.doc", copy)
+                            action(speaking ? "Stop Speaking" : "Speak", speaking ? "stop.fill" : "speaker.wave.2", speak)
                             action("Branch from Here", "arrow.triangle.branch") { controller.branch(chatID, through: message.id) }
                         }
                         // Not 0: a fully transparent view leaves the accessibility tree (VoiceOver could not reach it).
@@ -88,6 +89,9 @@ struct MessageRow: View {
     /// The same actions on a right click.
     @ViewBuilder private var menu: some View {
         Button("Copy", systemImage: "doc.on.doc", action: copy)
+        if message.role == .assistant {
+            Button(speaking ? "Stop Speaking" : "Speak", systemImage: speaking ? "stop.fill" : "speaker.wave.2", action: speak)
+        }
         if message.role == .user {
             Button("Edit", systemImage: "pencil") { draft = message.content; editing = true }
             Button("Retry from Here", systemImage: "arrow.clockwise") {
@@ -131,6 +135,19 @@ struct MessageRow: View {
                 .keyboardShortcut(.return, modifiers: .command)
                 .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && message.attachments.isEmpty)
             }
+        }
+    }
+
+    private var speaking: Bool { Speaker.shared.speakingID == message.id.uuidString }
+
+    /// Reads the answer aloud, or stops it.
+    private func speak() {
+        if speaking { Speaker.shared.stop(); return }
+        let text = SpeechText.plain((message.steps.map(\.text) + [message.content]).filter { !$0.isEmpty }.joined(separator: "\n\n"))
+        let id = message.id.uuidString
+        Task {
+            do { try await Speaker.shared.speak(text, id: id) }
+            catch { controller.errors[chatID] = APIError(status: nil, message: error.localizedDescription, url: nil) }
         }
     }
 

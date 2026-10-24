@@ -16,6 +16,7 @@ enum AppTool: String, CaseIterable, Sendable {
     case listMCP = "app_list_mcp"
     case enableMCP = "app_enable_mcp"
     case disableMCP = "app_disable_mcp"
+    case say = "app_say"
 
     /// The key a chat switches these tools off with.
     static let key = "__app__"
@@ -34,6 +35,7 @@ enum AppTool: String, CaseIterable, Sendable {
         case .listMCP: "List the MCP servers: name, enabled, state, number of tools."
         case .enableMCP: "Enable an MCP server by name (it connects)."
         case .disableMCP: "Disable an MCP server by name (it disconnects)."
+        case .say: "Say a text aloud to the user (the macOS voice, or the TTS model from Settings). Returns when it has been spoken."
         }
     }
 
@@ -55,6 +57,7 @@ enum AppTool: String, CaseIterable, Sendable {
         case .renameChat: return object(["chat_id": chatID, "title": string("New title")], ["chat_id", "title"])
         case .setModel: return object(["model": string("Model id"), "chat_id": chatID], ["model"])
         case .enableMCP, .disableMCP: return object(["name": string("The server's name from app_list_mcp")], ["name"])
+        case .say: return object(["text": string("What to say, as plain words (no Markdown)")], ["text"])
         }
     }
 
@@ -184,6 +187,10 @@ enum AppTool: String, CaseIterable, Sendable {
             guard let name = text("name") else { throw MCPError(message: "A \"name\" is needed.") }
             try MCPManager.shared.setEnabled(name, self == .enableMCP)
             return "\"\(name)\" is \(self == .enableMCP ? "enabled; it connects and its tools are offered from the next message" : "disabled")."
+
+        case .say:
+            guard let words = text("text") else { throw MCPError(message: "A \"text\" is needed.") }
+            return try await Speaker.shared.speak(words) ? "Spoken." : "Stopped by the user."
         }
     }
 }

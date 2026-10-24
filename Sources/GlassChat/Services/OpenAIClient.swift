@@ -59,6 +59,18 @@ struct OpenAIClient: Sendable {
         return try JSONDecoder().decode(Body.self, from: data).text
     }
 
+    /// A text said aloud (`/audio/speech`, e.g. gpt-4o-mini-tts), as MP3.
+    func speech(_ text: String, model: String, voice: String) async throws -> Data {
+        var request = request("audio/speech", method: "POST")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(JSONValue.object([
+            "model": .string(model), "input": .string(text), "voice": .string(voice), "response_format": .string("mp3"),
+        ]))
+        let (data, response) = try await URLSession.shared.data(for: request)
+        try Self.check(response, body: data, url: request.url)
+        return data
+    }
+
     /// Streams an answer. `messages` are Chat Completions messages (content may be a list of parts),
     /// `tools` are function definitions; both go to the server as they are.
     func streamChat(model: String, messages: [JSONValue], tools: [JSONValue]) -> AsyncThrowingStream<StreamEvent, Error> {
