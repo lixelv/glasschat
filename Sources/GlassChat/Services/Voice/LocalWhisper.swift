@@ -86,7 +86,11 @@ final class LocalWhisper {
         }
         if await warmUp() {
             do { return try await transcribeOnServer(wav) }
-            catch { voiceLog.error("whisper-server failed, using whisper-cli: \(error.localizedDescription, privacy: .public)") }
+            catch {
+                // Folding the notch cancels the phrase: that is not a failure to make up for.
+                if Task.isCancelled { throw CancellationError() }
+                voiceLog.error("whisper-server failed, using whisper-cli: \(error.localizedDescription, privacy: .public)")
+            }
         }
         let (status, output) = try await Self.run(cli, ["-m", modelFile.path, "-f", wav.path, "-l", "auto", "-nt", "-np"], errors: false)
         guard status == 0 else { throw MCPError(message: "whisper-cli failed: \(output.suffix(300))") }

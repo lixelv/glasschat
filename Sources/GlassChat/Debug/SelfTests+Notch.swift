@@ -15,6 +15,13 @@ extension SelfTests {
         expect(NotchGeometry.shapeSize(.busy, notch: n, contentHeight: 0) == CGSize(width: 244, height: 32), "busy +28/side")
         expect(NotchGeometry.shapeSize(.expanded, notch: n, contentHeight: 200) == CGSize(width: 480, height: 232), "expanded fits")
         expect(NotchGeometry.shapeSize(.expanded, notch: n, contentHeight: 900).height == 520, "expanded max")
+
+        // What a click does, by where it happened (its own location, not where the pointer is later).
+        let shape = CGRect(x: 510, y: 450, width: 492, height: 532)
+        expect(NotchGeometry.click(at: CGPoint(x: 756, y: 960), shape: shape, expanded: false) == .expand, "click on the folded notch")
+        expect(NotchGeometry.click(at: CGPoint(x: 756, y: 960), shape: shape, expanded: true) == NotchGeometry.Click.none, "click inside the open notch")
+        expect(NotchGeometry.click(at: CGPoint(x: 808, y: 574), shape: CGRect(x: 510, y: 900, width: 492, height: 82), expanded: true) == .collapse, "click elsewhere folds it")
+        expect(NotchGeometry.click(at: CGPoint(x: 100, y: 100), shape: shape, expanded: false) == NotchGeometry.Click.none, "click elsewhere while folded")
     }
 }
 #endif

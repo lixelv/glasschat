@@ -86,6 +86,7 @@ final class AssistantController {
     }
 
     func expanded() {
+        voiceLog.debug("notch expanded")
         // Local Whisper loads its model while the user starts talking.
         if settings.recognitionMode == .localWhisper { Task { await LocalWhisper.shared.warmUp() } }
         hasUnreadAnswer = false
@@ -95,6 +96,7 @@ final class AssistantController {
 
     /// Folding stops listening and speaking; an answer being written goes on.
     func collapsed() {
+        voiceLog.debug("notch collapsed")
         // A conversation still waiting to listen ends; one with an answer on the way goes on.
         if phase != .answering, phase != .speaking, !questionListening { cycle?.cancel() }
         recorder.cancel()
@@ -105,6 +107,7 @@ final class AssistantController {
 
     /// Starts a conversation, unless one is already running.
     func listen() {
+        voiceLog.debug("listen requested, running: \(self.cycle != nil)")
         guard cycle == nil else { return }
         error = nil
         cycle = Task { [weak self] in
@@ -114,6 +117,7 @@ final class AssistantController {
     }
 
     func stopAll() {
+        voiceLog.debug("stop all")
         let id = chatID
         cycle?.cancel()
         collapsed()
@@ -246,6 +250,7 @@ final class AssistantController {
                 defer { try? FileManager.default.removeItem(at: recording.url) }
                 let text = try await session.finish(recording)
                 self.session = nil
+                guard !Task.isCancelled else { return nil }
                 voiceLog.debug("transcribed: \(text, privacy: .public)")
                 if settings.recognitionMode == .audioToModel {
                     heard = text
@@ -256,6 +261,11 @@ final class AssistantController {
                 heard = text
                 return Heard(text: text, audio: nil)
             } catch {
+                if Task.isCancelled || error is CancellationError {
+                    session?.cancel()
+                    session = nil
+                    return nil
+                }
                 voiceLog.error("hear failed: \(error.localizedDescription, privacy: .public)")
                 session?.cancel()
                 session = nil

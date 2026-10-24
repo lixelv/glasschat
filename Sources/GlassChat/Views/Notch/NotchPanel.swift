@@ -50,15 +50,19 @@ final class NotchPanelController {
         panel.orderFrontRegardless()
 
         let moved: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
-        if let global = NSEvent.addGlobalMonitorForEvents(matching: moved, handler: { _ in
-            Task { @MainActor in NotchPanelController.shared.track() }
+        // Where an event happened is read from the event itself: the main actor may get to it late,
+        // when the pointer is somewhere else.
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: moved, handler: { event in
+            let point = Self.screenPoint(of: event)
+            Task { @MainActor in NotchPanelController.shared.track(point) }
         }) { monitors.append(global) }
         if let local = NSEvent.addLocalMonitorForEvents(matching: moved, handler: { event in
-            NotchPanelController.shared.track()
+            NotchPanelController.shared.track(Self.screenPoint(of: event))
             return event
         }) { monitors.append(local) }
-        if let global = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown, handler: { _ in
-            Task { @MainActor in NotchPanelController.shared.clickedOutside() }
+        if let global = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown, handler: { event in
+            let point = Self.screenPoint(of: event)
+            Task { @MainActor in NotchPanelController.shared.clicked(at: point) }
         }) { monitors.append(global) }
         if let local = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .keyDown], handler: { event in
             NotchPanelController.shared.local(event)
@@ -103,26 +107,41 @@ final class NotchPanelController {
             .insetBy(dx: -4, dy: -4)
     }
 
-    private func track() {
+    /// An event's place on the screen (a global event has no window: its location is already on the screen).
+    private nonisolated static func screenPoint(of event: NSEvent) -> CGPoint {
+        guard let window = event.window else { return event.locationInWindow }
+        return window.convertPoint(toScreen: event.locationInWindow)
+    }
+
+    private func track(_ point: CGPoint) {
         guard let panel else { return }
-        let inside = shapeFrame.contains(NSEvent.mouseLocation)
+        let inside = shapeFrame.contains(point)
         panel.ignoresMouseEvents = !inside
         if !model.isExpanded, model.isHovering != inside { model.isHovering = inside }
         if inside, model.isExpanded, !panel.isKeyWindow { panel.makeKey() }
     }
 
-    private func clickedOutside() {
-        if model.isExpanded, !shapeFrame.contains(NSEvent.mouseLocation) { collapse() }
+    /// A click anywhere but on the open panel: one that went through the transparent panel onto the notch's
+    /// shape opens it, one elsewhere folds it.
+    private func clicked(at point: CGPoint) {
+        switch NotchGeometry.click(at: point, shape: shapeFrame, expanded: model.isExpanded) {
+        case .expand: expand()
+        case .collapse:
+            voiceLog.debug("click outside the notch at \(point.debugDescription, privacy: .public)")
+            collapse()
+        case .none: break
+        }
     }
 
     private func local(_ event: NSEvent) -> NSEvent? {
         switch event.type {
         case .keyDown where event.keyCode == 53 && model.isExpanded:
+            voiceLog.debug("escape folds the notch")
             collapse()
             return nil
         case .leftMouseDown where event.window !== panel:
-            clickedOutside()
-        case .leftMouseDown where !model.isExpanded && shapeFrame.contains(NSEvent.mouseLocation):
+            clicked(at: Self.screenPoint(of: event))
+        case .leftMouseDown where !model.isExpanded && shapeFrame.contains(Self.screenPoint(of: event)):
             expand()
             return nil
         default:
@@ -134,6 +153,6 @@ final class NotchPanelController {
     func collapse() {
         model.collapse()
         panel?.resignKey()
-        track()
+        track(NSEvent.mouseLocation)
     }
 }

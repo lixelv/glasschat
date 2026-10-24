@@ -57,6 +57,7 @@ final class VoiceRecorder {
     /// The phrase once it ended, or nil when no speech started in time or it was cancelled.
     /// `onBuffer` gets every microphone buffer, on the audio thread.
     func record(_ config: SilenceDetector.Config, onBuffer: @escaping @Sendable (AVAudioPCMBuffer) -> Void) async throws -> Recording? {
+        if isRecording { voiceLog.debug("a new recording replaces one still running") }
         end(nil)
         let format = try inputFormat()
         let url = FileManager.default.temporaryDirectory.appending(path: "glasschat-phrase-\(UUID().uuidString).wav")
@@ -84,6 +85,7 @@ final class VoiceRecorder {
     }
 
     func cancel() {
+        voiceLog.debug("recording cancelled")
         end(nil)
     }
 
@@ -110,6 +112,7 @@ final class VoiceRecorder {
     }
 
     private func end(_ result: Recording?) {
+        if isRecording { voiceLog.debug("recording ended, phrase: \(result != nil)") }
         if isRecording {
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()
