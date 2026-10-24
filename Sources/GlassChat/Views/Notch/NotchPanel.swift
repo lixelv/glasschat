@@ -83,6 +83,12 @@ final class NotchPanelController {
         panel = nil
     }
 
+    /// The shortcut: open and listen, or fold.
+    func toggle() {
+        guard panel != nil else { return }
+        if model.isExpanded { collapse() } else { expand() }
+    }
+
     func expand() {
         model.expand()
         panel?.ignoresMouseEvents = false

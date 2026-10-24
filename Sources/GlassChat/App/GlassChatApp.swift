@@ -62,14 +62,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotchPanelController.shared.content = { AnyView(AssistantNotchContent()) }
         AssistantController.shared.attach(NotchPanelController.shared.model)
         if AppSettings.shared.assistantEnabled { NotchPanelController.shared.install() }
+        GlobalHotKey.shared.action = { NotchPanelController.shared.toggle() }
+        Self.registerShortcut()
         #if DEBUG
         if ProcessInfo.processInfo.environment["GLASSCHAT_NOTCH_DEMO"] == "1" { NotchDemo.start() }
         #endif
         NotificationCenter.default.addObserver(forName: .assistantToggled, object: nil, queue: .main) { _ in
             Task { @MainActor in
                 if AppSettings.shared.assistantEnabled { NotchPanelController.shared.install() } else { NotchPanelController.shared.uninstall() }
+                AppDelegate.registerShortcut()
             }
         }
+    }
+
+    /// The notch's shortcut, while the notch is on.
+    static func registerShortcut() {
+        let settings = AppSettings.shared
+        GlobalHotKey.shared.register(settings.assistantEnabled ? settings.assistantShortcut : nil)
     }
 
     func applicationWillTerminate(_ notification: Notification) {

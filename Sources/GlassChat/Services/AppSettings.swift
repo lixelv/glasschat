@@ -31,6 +31,13 @@ final class AppSettings {
     // MARK: Notch assistant
 
     var assistantEnabled: Bool { didSet { defaults.set(assistantEnabled, forKey: "assistantEnabled") } }
+    /// The shortcut that opens the notch from any app; nil: none.
+    var assistantShortcut: Shortcut? {
+        didSet {
+            if let assistantShortcut { defaults.set(try? JSONEncoder().encode(assistantShortcut), forKey: "assistantShortcut") }
+            else { defaults.set("off", forKey: "assistantShortcut") }
+        }
+    }
     /// A locale identifier for Apple recognition; empty: the system's.
     var transcriptionLanguage: String { didSet { defaults.set(transcriptionLanguage, forKey: "transcriptionLanguage") } }
     /// Seconds of silence that end a phrase.
@@ -72,6 +79,11 @@ final class AppSettings {
         recognitionMode = defaults.string(forKey: "recognitionMode").flatMap(RecognitionMode.init(rawValue:))
             ?? (transcription.model.isEmpty ? .default : .provider)
         assistantEnabled = defaults.object(forKey: "assistantEnabled") as? Bool ?? true
+        switch defaults.object(forKey: "assistantShortcut") {
+        case let data as Data: assistantShortcut = (try? JSONDecoder().decode(Shortcut.self, from: data)) ?? .standard
+        case "off" as String: assistantShortcut = nil
+        default: assistantShortcut = .standard
+        }
         transcriptionLanguage = defaults.string(forKey: "transcriptionLanguage") ?? ""
         silencePause = defaults.object(forKey: "silencePause") as? Double ?? 1.5
         followUpWindow = defaults.object(forKey: "followUpWindow") as? Double ?? 15

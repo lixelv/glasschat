@@ -28,10 +28,12 @@ struct AssistantSettings: View {
                     .onChange(of: settings.assistantEnabled) { _, _ in
                         NotificationCenter.default.post(name: .assistantToggled, object: nil)
                     }
+                ShortcutRecorder()
+                    .disabled(!settings.assistantEnabled)
             } header: {
                 Text("Notch Assistant")
             } footer: {
-                footer("Click the notch to talk. Closing the window keeps GlassChat running while this is on.")
+                footer("Click the notch or press the shortcut to talk; the shortcut again folds it. Closing the window keeps GlassChat running while this is on.")
             }
 
             Section {
