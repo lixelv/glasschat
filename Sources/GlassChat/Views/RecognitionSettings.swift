@@ -17,6 +17,7 @@ struct RecognitionSettings: View {
             }
         }
         .pickerStyle(.radioGroup)
+        .labelsHidden()
         .onChange(of: settings.recognitionMode) { _, mode in
             if mode == .localWhisper { whisper.refresh() }
         }

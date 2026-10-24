@@ -87,29 +87,32 @@ final class LocalWhisper {
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// With curl: URLSession turns down the address Hugging Face's CDN redirects to ("bad URL").
     private func download() async throws {
         state = .downloading(0)
+        let curl = URL(filePath: "/usr/bin/curl")
         let partial = modelFile.appendingPathExtension("part")
-        let (bytes, response) = try await URLSession.shared.bytes(from: Self.modelURL)
-        guard (response as? HTTPURLResponse)?.statusCode == 200 else { throw MCPError(message: "The Whisper model could not be downloaded.") }
-        let total = max(response.expectedContentLength, 1)
-        FileManager.default.createFile(atPath: partial.path, contents: nil)
-        let handle = try FileHandle(forWritingTo: partial)
-        defer { try? handle.close() }
-        var buffer = Data()
-        var written: Int64 = 0
-        buffer.reserveCapacity(1 << 20)
-        for try await byte in bytes {
-            buffer.append(byte)
-            if buffer.count >= 1 << 20 {
-                try handle.write(contentsOf: buffer)
-                written += Int64(buffer.count)
-                buffer.removeAll(keepingCapacity: true)
-                state = .downloading(Double(written) / Double(total))
+        try? FileManager.default.removeItem(at: partial)
+        // The size, from the headers of the last redirect.
+        let (_, headers) = try await Self.run(curl, ["-sIL", Self.modelURL.absoluteString])
+        let total = headers.split(separator: "\n").last { $0.lowercased().hasPrefix("content-length:") }
+            .flatMap { Double($0.split(separator: ":").last?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "") } ?? 0
+        let watch = Task { @MainActor in
+            while !Task.isCancelled {
+                let size = (try? FileManager.default.attributesOfItem(atPath: partial.path)[.size] as? Double) ?? 0
+                if total > 0 { state = .downloading(min(size / total, 1)) }
+                try? await Task.sleep(for: .milliseconds(300))
             }
         }
-        try handle.write(contentsOf: buffer)
-        try handle.close()
+        defer { watch.cancel() }
+        let (status, output) = try await Self.run(curl, ["-fsSL", "-o", partial.path, Self.modelURL.absoluteString])
+        guard status == 0 else {
+            // curl 6/7: the name did not resolve, or to 0.0.0.0 — what DNS filters do.
+            if status == 6 || status == 7 {
+                throw MCPError(message: "Hugging Face's download server (*.hf.co) cannot be reached. A DNS filter or ad blocker (AdGuard…) may block it: allow *.hf.co, then press Install again.")
+            }
+            throw MCPError(message: "The Whisper model could not be downloaded: \(output.suffix(200))")
+        }
         try? FileManager.default.removeItem(at: modelFile)
         try FileManager.default.moveItem(at: partial, to: modelFile)
     }
