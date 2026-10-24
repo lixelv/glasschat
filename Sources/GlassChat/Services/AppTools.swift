@@ -6,16 +6,16 @@ import UserNotifications
 enum AppTool: String, CaseIterable, Sendable {
     case notify = "app_notify"
     case alert = "app_alert"
-    case listChats = "app_list_chats"
-    case createChat = "app_create_chat"
-    case switchChat = "app_switch_chat"
-    case renameChat = "app_rename_chat"
-    case deleteChat = "app_delete_chat"
-    case listModels = "app_list_models"
-    case setModel = "app_set_model"
-    case listMCP = "app_list_mcp"
-    case enableMCP = "app_enable_mcp"
-    case disableMCP = "app_disable_mcp"
+    case listChats = "_app_list_chats"
+    case createChat = "_app_create_chat"
+    case switchChat = "_app_switch_chat"
+    case renameChat = "_app_rename_chat"
+    case deleteChat = "_app_delete_chat"
+    case listModels = "_app_list_models"
+    case setModel = "_app_set_model"
+    case listMCP = "_app_list_mcp"
+    case enableMCP = "_app_enable_mcp"
+    case disableMCP = "_app_disable_mcp"
     case say = "app_say"
     case askUser = "app_ask_user"
 
@@ -46,7 +46,7 @@ enum AppTool: String, CaseIterable, Sendable {
         func object(_ props: [String: JSONValue], _ required: [String]) -> JSONValue {
             .object(["type": .string("object"), "properties": .object(props), "required": .array(required.map(JSONValue.string))])
         }
-        let chatID = string("The chat's id from app_list_chats")
+        let chatID = string("The chat's id from _app_list_chats")
         switch self {
         case .notify: return object(["title": string("Title"), "body": string("Text")], ["title"])
         case .alert:
@@ -58,7 +58,7 @@ enum AppTool: String, CaseIterable, Sendable {
         case .switchChat, .deleteChat: return object(["chat_id": chatID], ["chat_id"])
         case .renameChat: return object(["chat_id": chatID, "title": string("New title")], ["chat_id", "title"])
         case .setModel: return object(["model": string("Model id"), "chat_id": chatID], ["model"])
-        case .enableMCP, .disableMCP: return object(["name": string("The server's name from app_list_mcp")], ["name"])
+        case .enableMCP, .disableMCP: return object(["name": string("The server's name from _app_list_mcp")], ["name"])
         case .say: return object(["text": string("What to say, as plain words (no Markdown)")], ["text"])
         case .askUser:
             let option = object(["label": string("The answer as shown on its button"), "description": string("A short explanation (optional)")], ["label"])
@@ -89,7 +89,7 @@ enum AppTool: String, CaseIterable, Sendable {
         }
         func chat() throws -> Chat {
             guard let raw = text("chat_id"), let id = UUID(uuidString: raw), let chat = store.chat(id) else {
-                throw MCPError(message: "There is no chat with that id; see app_list_chats.")
+                throw MCPError(message: "There is no chat with that id; see _app_list_chats.")
             }
             return chat
         }
@@ -140,7 +140,7 @@ enum AppTool: String, CaseIterable, Sendable {
         case .createChat:
             let created = store.newChat(model: text("model") ?? AppSettings.shared.defaultModel)
             if let title = text("title") { store.update(created.id) { $0.title = title } }
-            return "Created the chat \(created.id.uuidString). Use app_switch_chat to show it."
+            return "Created the chat \(created.id.uuidString). Use _app_switch_chat to show it."
 
         case .switchChat:
             let target = try chat()

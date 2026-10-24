@@ -128,11 +128,11 @@ final class MCPManager {
 
     /// The built-in tools: the model reads and edits `mcpServers`.
     enum RegistryTool: String, CaseIterable, Sendable {
-        case list = "mcp_registry_list"
-        case get = "mcp_registry_get"
-        case add = "mcp_registry_add"
-        case update = "mcp_registry_update"
-        case delete = "mcp_registry_delete"
+        case list = "_mcp_registry_list"
+        case get = "_mcp_registry_get"
+        case add = "_mcp_registry_add"
+        case update = "_mcp_registry_update"
+        case delete = "_mcp_registry_delete"
 
         var description: String {
             switch self {
@@ -197,7 +197,7 @@ final class MCPManager {
 
     /// Sets or clears `"disabled"` of an entry (the app tools' enable/disable).
     func setEnabled(_ name: String, _ enabled: Bool) throws {
-        guard case .object(var entry)? = config[name] else { throw MCPError(message: "There is no MCP server \"\(name)\"; see app_list_mcp.") }
+        guard case .object(var entry)? = config[name] else { throw MCPError(message: "There is no MCP server \"\(name)\"; see _app_list_mcp.") }
         if enabled { entry["disabled"] = nil } else { entry["disabled"] = .bool(true) }
         try setEntry(name, .object(entry))
     }
@@ -348,6 +348,7 @@ final class MCPManager {
     /// What the model is offered: the search, the groups not switched off, and the tools a search found.
     func functions(disabled: Set<String>, found: Set<String> = []) -> [String: Function] {
         allFunctions().filter { name, function in
+            if HiddenTools.isHidden(name), !found.contains(name) { return false }
             guard let group = function.group else { return true }
             return !disabled.contains(group) || found.contains(name)
         }
