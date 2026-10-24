@@ -71,7 +71,7 @@ struct AssistantSettings: View {
             } header: {
                 Text("Voice")
             } footer: {
-                footer("Without a speech model: the macOS voice.")
+                footer("Without a speech model: the macOS voice. Texts in another language than the chosen voice get a voice of their own language.")
             }
 
             Section {

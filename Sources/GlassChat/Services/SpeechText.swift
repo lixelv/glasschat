@@ -1,4 +1,5 @@
 import Foundation
+import NaturalLanguage
 
 /// The words of an answer to read aloud: Markdown marks, code blocks and images left out.
 enum SpeechText {
@@ -19,5 +20,15 @@ enum SpeechText {
             text = text.replacingOccurrences(of: pattern, with: template, options: .regularExpression)
         }
         return text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// The language a text is written in ("ru", "en"), to pick a voice that can read it.
+    static func language(of text: String) -> String? {
+        NLLanguageRecognizer.dominantLanguage(for: text)?.rawValue
+    }
+
+    /// Whether a voice's language ("ru-RU") is the text's language ("ru").
+    static func voiceMatches(_ voiceLanguage: String, text language: String) -> Bool {
+        voiceLanguage.lowercased().split(separator: "-").first.map(String.init) == language.lowercased()
     }
 }

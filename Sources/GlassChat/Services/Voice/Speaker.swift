@@ -79,9 +79,7 @@ final class Speaker {
 
     private func startSystemVoice(_ text: String, once: ResumeOnce<Bool>) {
         let utterance = AVSpeechUtterance(string: text)
-        let id = AppSettings.shared.systemVoice
-        utterance.voice = (id.isEmpty ? nil : AVSpeechSynthesisVoice(identifier: id))
-            ?? AVSpeechSynthesisVoice(language: Locale.current.identifier(.bcp47))
+        utterance.voice = Self.voice(for: text)
         let playback = SynthPlayback(
             onLevel: { level in Task { @MainActor in Speaker.shared.setLevel(level, if: once) } },
             onDone: { once.resume(true) })
@@ -89,6 +87,18 @@ final class Speaker {
         self.playback = playback
         self.synthesizer = synthesizer
         synthesizer.write(utterance, toBufferCallback: Self.callback(playback))
+    }
+
+    /// The voice of Settings when it speaks the text's language, else the best voice of that language
+    /// (a voice of another language spells the text letter by letter).
+    private static func voice(for text: String) -> AVSpeechSynthesisVoice? {
+        let chosen = AppSettings.shared.systemVoice.isEmpty ? nil : AVSpeechSynthesisVoice(identifier: AppSettings.shared.systemVoice)
+        guard let language = SpeechText.language(of: text) else {
+            return chosen ?? AVSpeechSynthesisVoice(language: Locale.current.identifier(.bcp47))
+        }
+        if let chosen, SpeechText.voiceMatches(chosen.language, text: language) { return chosen }
+        let voices = AVSpeechSynthesisVoice.speechVoices().filter { SpeechText.voiceMatches($0.language, text: language) }
+        return voices.max { $0.quality.rawValue < $1.quality.rawValue } ?? AVSpeechSynthesisVoice(language: language)
     }
 
     /// Made outside the main actor: the synthesizer calls it on its own thread.
