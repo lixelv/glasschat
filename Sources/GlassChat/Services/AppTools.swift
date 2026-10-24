@@ -21,6 +21,7 @@ enum AppTool: String, CaseIterable, Sendable {
     case read = "app_read"
     case write = "app_write"
     case edit = "app_edit"
+    case bash = "app_bash"
 
     /// The key a chat switches these tools off with.
     static let key = "__app__"
@@ -42,6 +43,7 @@ enum AppTool: String, CaseIterable, Sendable {
         case .read: "Read a file on this Mac as numbered lines (up to 2000; use offset and limit for more), or list a folder (folders end with /). Paths: absolute, ~/…, or relative to the chat's working folder (see app_bash)."
         case .write: "Create or replace a file with the given content (missing folders are created). Read a file before replacing it."
         case .edit: "Replace an exact piece of text in a file. old_string must occur once, unless replace_all is true; include enough surrounding text to make it unique."
+        case .bash: "Run a command in zsh on this Mac (a login shell, so the user's PATH). The working folder starts at the home folder and a cd is remembered for this chat. Returns stdout and stderr (cut at 30000 characters) and the exit code. Timeout 120 s by default, at most 600 s."
         case .askUser: "Ask the user one to four questions with suggested answers and wait for their choice. They pick an option, type their own answer, or skip. Use it instead of asking in text when there are clear options."
         case .say: "Say a text aloud to the user (the macOS voice, or the TTS model from Settings). Returns when it has been spoken."
         }
@@ -71,6 +73,10 @@ enum AppTool: String, CaseIterable, Sendable {
                            "offset": .object(["type": .string("integer"), "description": .string("The first line to read, from 1")]),
                            "limit": .object(["type": .string("integer"), "description": .string("How many lines (default 2000)")])], ["path"])
         case .write: return object(["path": string("The file"), "content": string("The whole new content")], ["path", "content"])
+        case .bash:
+            return object(["command": string("The command"),
+                           "timeout": .object(["type": .string("number"), "description": .string("Seconds (default 120, at most 600)")])],
+                          ["command"])
         case .edit:
             return object(["path": string("The file"), "old_string": string("The exact text to replace"),
                            "new_string": string("The text to put instead"),
@@ -235,6 +241,14 @@ enum AppTool: String, CaseIterable, Sendable {
                 let all: Bool = { if case .bool(true)? = args["replace_all"] { return true }; return false }()
                 return try FileTools.edit(url, old: old, new: new, replaceAll: all)
             }
+
+        case .bash:
+            guard let command = text("command") else { throw MCPError(message: "A \"command\" is needed.") }
+            let timeout = min(max(args["timeout"]?.double ?? ShellRunner.defaultTimeout, 1), ShellRunner.maxTimeout)
+            let result = await ShellRunner.shared.run(command, in: chatID, timeout: timeout)
+            var reply = result.output.isEmpty ? "(no output)" : result.output
+            if result.timedOut { reply += "\nTimed out after \(Int(timeout)) s." }
+            return reply + "\nExit code: \(result.exitCode)"
 
         case .askUser:
             let questions = try AskUser.parse(args)

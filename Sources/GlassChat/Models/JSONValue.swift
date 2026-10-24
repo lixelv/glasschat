@@ -42,6 +42,11 @@ enum JSONValue: Codable, Hashable, Sendable {
         return nil
     }
 
+    var double: Double? {
+        if case .number(let n) = self { return n }
+        return nil
+    }
+
     var int: Int? {
         if case .number(let n) = self { return Int(n) }
         return nil
