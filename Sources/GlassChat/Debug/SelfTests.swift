@@ -9,7 +9,7 @@ enum SelfTests {
     private static var count = 0
 
     /// Each area adds its checks here.
-    private static let suites: [@MainActor () -> Void] = [context, silence, multipart, speechText, askUser]
+    private static let suites: [@MainActor () -> Void] = [context, silence, multipart, speechText, askUser, notch]
 
     static func runIfRequested() {
         guard ProcessInfo.processInfo.environment["GLASSCHAT_SELF_TEST"] == "1" else { return }

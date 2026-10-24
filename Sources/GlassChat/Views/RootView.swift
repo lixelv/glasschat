@@ -9,6 +9,7 @@ struct RootView: View {
     @State private var preview = Preview()
     private var store = ChatStore.shared
     private var settings = AppSettings.shared
+    @Environment(\.openWindow) private var openWindow
 
     var body: some View {
         NavigationSplitView {
@@ -37,6 +38,11 @@ struct RootView: View {
             OnboardingView()
         }
         .onAppear {
+            MainWindow.open = openWindow
+            if let pending = MainWindow.pendingChat, store.chat(pending) != nil {
+                selection = pending
+                MainWindow.pendingChat = nil
+            }
             showOnboarding = !settings.isConfigured
             if selection == nil {
                 selection = store.chats.first?.id ?? store.newChat(model: settings.defaultModel).id

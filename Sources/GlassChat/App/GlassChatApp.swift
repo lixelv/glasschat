@@ -12,7 +12,7 @@ struct GlassChatApp: App {
     }
 
     var body: some Scene {
-        WindowGroup {
+        WindowGroup(id: "main") {
             RootView()
                 .frame(minWidth: 760, minHeight: 520)
         }
@@ -59,13 +59,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in AppDelegate.current?.updateDockIcon() }
         }
         MCPManager.shared.syncConnections()
+        if AppSettings.shared.assistantEnabled { NotchPanelController.shared.install() }
+        NotificationCenter.default.addObserver(forName: .assistantToggled, object: nil, queue: .main) { _ in
+            Task { @MainActor in
+                if AppSettings.shared.assistantEnabled { NotchPanelController.shared.install() } else { NotchPanelController.shared.uninstall() }
+            }
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
         ChatStore.shared.saveNow()
     }
 
-    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { true }
+    /// With the notch assistant the app keeps running without windows; the Dock icon opens one again.
+    func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
+        !AppSettings.shared.assistantEnabled
+    }
 }
 
 extension Notification.Name {
