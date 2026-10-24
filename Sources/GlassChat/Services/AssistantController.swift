@@ -95,7 +95,7 @@ final class AssistantController {
     func expanded() {
         voiceLog.debug("notch expanded")
         // Local Whisper loads its model while the user starts talking.
-        if settings.recognitionMode == .localWhisper { Task { await LocalWhisper.shared.warmUp() } }
+        if settings.recognitionMode == .whisper { Task { _ = try? await VoiceModels.shared.transcriber() } }
         hasUnreadAnswer = false
         error = nil
         if !ChatController.shared.isStreaming(chatID) { listen() }
@@ -278,10 +278,6 @@ final class AssistantController {
         self.session = nil
         guard !Task.isCancelled else { return nil }
         voiceLog.debug("transcribed: \(text, privacy: .public)")
-        if settings.recognitionMode == .audioToModel {
-            heard = text
-            return Heard(text: text, audio: try AttachmentStore.importFile(at: recording.url))
-        }
         guard SpeechText.isWords(text) else { return nil }
         heard = text
         return Heard(text: text, audio: nil)

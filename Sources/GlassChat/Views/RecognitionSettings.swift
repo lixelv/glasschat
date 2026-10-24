@@ -1,10 +1,9 @@
 import SwiftUI
 
-/// How speech becomes the assistant's message: the four ways, and what each needs (a model, an install).
+/// Apple or Whisper, and the state of the two local voice models.
 /// In Settings → Assistant and in the onboarding sheet.
 struct RecognitionSettings: View {
     @Bindable private var settings = AppSettings.shared
-    private var whisper = LocalWhisper.shared
 
     var body: some View {
         Picker("Speech Recognition", selection: $settings.recognitionMode) {
@@ -18,48 +17,37 @@ struct RecognitionSettings: View {
         }
         .pickerStyle(.radioGroup)
         .labelsHidden()
-        .onChange(of: settings.recognitionMode) { _, mode in
-            if mode == .localWhisper { whisper.refresh() }
-        }
-        .onAppear { whisper.refresh() }
+    }
+}
 
-        switch settings.recognitionMode {
-        case .provider:
-            ModelRow(role: .transcription)
-        case .localWhisper:
-            whisperRow
-        case .builtIn, .audioToModel:
-            EmptyView()
+/// Download state of Whisper and Supertonic, with a retry.
+struct VoiceModelsStatus: View {
+    private var models = VoiceModels.shared
+
+    var body: some View {
+        row("Whisper large-v3-turbo (hearing, ~630 MB)", models.whisper)
+        row("Supertonic 3 (voice, ~400 MB)", models.speech)
+        if case .failed = models.whisper { retry } else if case .failed = models.speech { retry }
+    }
+
+    private var retry: some View {
+        HStack {
+            Spacer()
+            Button("Download Again") { Task { await models.downloadAll() } }
         }
     }
 
-    @ViewBuilder private var whisperRow: some View {
-        HStack {
-            switch whisper.state {
-            case .checking:
-                ProgressView().controlSize(.small)
-            case .needsHomebrew:
-                Text("Homebrew is not installed. Install opens Terminal (it asks for your password), then press Install again.")
-                    .font(.callout).foregroundStyle(.secondary)
-            case .needsInstall:
-                Text("whisper.cpp or its model (about 550 MB) is not installed yet.")
-                    .font(.callout).foregroundStyle(.secondary)
-            case .installing(let step):
-                ProgressView().controlSize(.small)
-                Text(step).font(.callout).foregroundStyle(.secondary)
+    private func row(_ title: String, _ state: VoiceModels.State) -> some View {
+        LabeledContent(title) {
+            switch state {
+            case .missing:
+                Text("Not downloaded").foregroundStyle(.secondary)
             case .downloading(let fraction):
-                ProgressView("Downloading the model…", value: fraction).font(.callout)
+                ProgressView(value: fraction).frame(width: 120)
             case .ready:
-                Label("Installed", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                Label("Ready", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
             case .failed(let message):
-                Label(message, systemImage: "xmark.circle.fill").foregroundStyle(.red).lineLimit(3)
-            }
-            Spacer()
-            switch whisper.state {
-            case .needsHomebrew, .needsInstall, .failed:
-                Button("Install") { Task { await whisper.install() } }
-            default:
-                EmptyView()
+                Label(message, systemImage: "xmark.circle.fill").foregroundStyle(.red).lineLimit(2)
             }
         }
     }

@@ -1,4 +1,5 @@
 import AVFoundation
+import Supertonic
 import Speech
 import SwiftUI
 
@@ -16,7 +17,6 @@ struct AssistantSettings: View {
                 if settings.endpoint(.decision) != nil {
                     IntField("Tools per search", value: $settings.decisionTopN, range: 1...50)
                 }
-                ModelRow(role: .speech)
             } header: {
                 Text("Models")
             } footer: {
@@ -61,20 +61,16 @@ struct AssistantSettings: View {
             }
 
             Section {
-                Picker("macOS Voice", selection: $settings.systemVoice) {
-                    Text("System Default").tag("")
-                    ForEach(Self.voices, id: \.identifier) { voice in
-                        Text("\(voice.name) (\(voice.language))").tag(voice.identifier)
+                Picker("Voice", selection: $settings.supertonicVoice) {
+                    ForEach(Voice.allCases, id: \.self) { voice in
+                        Text(Self.voiceName(voice)).tag(voice.rawValue)
                     }
                 }
-                .disabled(settings.endpoint(.speech) != nil)
-                if settings.endpoint(.speech) != nil {
-                    TextField("Voice of the Speech Model", text: $settings.ttsVoice, prompt: Text("alloy"))
-                }
+                VoiceModelsStatus()
             } header: {
                 Text("Voice")
             } footer: {
-                footer("Without a speech model: the macOS voice. Texts in another language than the chosen voice get a voice of their own language.")
+                footer("Supertonic 3 speaks on this Mac in the language of each text; until it is downloaded, the macOS voice does.")
             }
 
             Section {
@@ -121,7 +117,11 @@ struct AssistantSettings: View {
         }
     }
 
-    private static let voices = AVSpeechSynthesisVoice.speechVoices().sorted { ($0.language, $0.name) < ($1.language, $1.name) }
+    /// "Female 1" for F1.
+    private static func voiceName(_ voice: Voice) -> String {
+        let raw = voice.rawValue
+        return (raw.hasPrefix("F") ? "Female " : "Male ") + raw.dropFirst()
+    }
 
     private func footer(_ text: String) -> some View {
         Text(text).font(.caption).foregroundStyle(.secondary)

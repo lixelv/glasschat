@@ -26,7 +26,6 @@ struct ModelConnectionEditor: View {
         self.done = done
         let settings = AppSettings.shared
         var connection = settings.connection(role)
-        if connection.model.isEmpty, let suggested = role.suggestedModel { connection.model = suggested }
         _connection = State(initialValue: connection)
         _token = State(initialValue: settings.token(role))
     }

@@ -1,34 +1,34 @@
 @preconcurrency import AVFoundation
 import Speech
 
-/// How the assistant turns speech into the message it sends.
+/// How the assistant turns speech into text.
 enum RecognitionMode: String, CaseIterable, Codable, Sendable {
     /// Apple's recognition on this Mac, in the languages of the system.
     case builtIn
-    /// The transcription model of a provider (`/audio/transcriptions`).
-    case provider
-    /// Whisper on this Mac (whisper.cpp from Homebrew).
-    case localWhisper
-    /// No transcription: the recording goes to the chat model as audio.
-    case audioToModel
+    /// whisper-large-v3-turbo on this Mac (WhisperKit); Apple shows the words while they are spoken.
+    case whisper
 
     static let `default` = RecognitionMode.builtIn
 
+    /// Saved modes of earlier versions: their local Whisper is this one; the rest are Apple's.
+    static func migrated(_ raw: String?) -> RecognitionMode {
+        switch raw {
+        case "whisper", "localWhisper": .whisper
+        default: .builtIn
+        }
+    }
+
     var title: String {
         switch self {
-        case .builtIn: "Built-in (Apple)"
-        case .provider: "Provider's Model"
-        case .localWhisper: "Whisper on This Mac"
-        case .audioToModel: "Audio to the Model"
+        case .builtIn: "Apple (built-in)"
+        case .whisper: "Whisper large-v3-turbo"
         }
     }
 
     var detail: String {
         switch self {
-        case .builtIn: "On this Mac, free, offline. Listens in the languages of System Settings and keeps the surest."
-        case .provider: "A transcription model of any provider, e.g. openai/whisper-large-v3-turbo. Any language."
-        case .localWhisper: "Whisper large-v3-turbo with whisper.cpp from Homebrew (about 550 MB). Offline, any language."
-        case .audioToModel: "The recording goes to the chat model as audio (models that hear, e.g. gpt-4o-audio, Gemini). The words shown are Apple's guess."
+        case .builtIn: "Free and instant. Listens in the languages of System Settings and keeps the surest."
+        case .whisper: "On this Mac, any language, more accurate; about a second after you stop talking."
         }
     }
 }
@@ -43,8 +43,8 @@ protocol TranscriptionSession: AnyObject, Sendable {
 }
 
 enum Transcription {
-    /// Apple always shows the words while they are spoken; with a provider's model or local Whisper that one writes
-    /// the final text, and Apple's stands in when it fails.
+    /// Apple always shows the words while they are spoken; with Whisper that one writes the final text,
+    /// and Apple's stands in when it fails.
     @MainActor
     static func start(inputFormat: AVAudioFormat, onPartial: @escaping @MainActor (String) -> Void,
                       onProgress: @escaping @MainActor (Double?) -> Void) async throws -> any TranscriptionSession {
@@ -56,27 +56,18 @@ enum Transcription {
             guard mode != .builtIn else { throw error }
             apple = nil
         }
-        switch mode {
-        case .builtIn:
-            return apple!
-        case .provider:
-            return FinalTranscription(fallback: apple) { recording in
-                guard let endpoint = AppSettings.shared.endpoint(.transcription) else {
-                    throw APIError(status: nil, message: "Choose the transcription model in Settings → Assistant.", url: nil)
-                }
-                let wav = try Data(contentsOf: recording.url)
-                let language = AppSettings.shared.transcriptionLanguage.isEmpty
-                    ? nil : Locale(identifier: AppSettings.shared.transcriptionLanguage).language.languageCode?.identifier
-                return try await OpenAIClient(baseURL: endpoint.url, token: endpoint.token)
-                    .transcribe(wav: wav, model: endpoint.model, language: language)
-            }
-        case .localWhisper:
-            return FinalTranscription(fallback: apple) { recording in
-                try await LocalWhisper.shared.transcribe(recording.url)
-            }
-        case .audioToModel:
-            // The text is only shown; the recording itself is sent.
-            return FinalTranscription(fallback: apple) { _ in "" }
+        guard mode == .whisper, VoiceModels.shared.whisper == .ready else {
+            // Until Whisper is downloaded, Apple hears.
+            guard let apple else { throw VoiceError.engine("Apple recognition could not start.") }
+            return apple
+        }
+        return FinalTranscription(fallback: apple) { recording in
+            let kit = try await VoiceModels.shared.transcriber()
+            let results = try await kit.transcribe(audioPath: recording.url.path)
+            // Whisper marks silence and noise as "[BLANK_AUDIO]" or "(music)": not words.
+            return results.map(\.text).joined(separator: " ")
+                .replacingOccurrences(of: #"\[[^\]]*\]|\([^)]*\)"#, with: "", options: .regularExpression)
+                .trimmingCharacters(in: .whitespacesAndNewlines)
         }
     }
 
@@ -309,7 +300,7 @@ final class AppleTranscription: TranscriptionSession {
     }
 }
 
-/// The final text from somewhere else (a provider's model, local Whisper), with Apple's live text meanwhile;
+/// The final text from Whisper, with Apple's live text meanwhile;
 /// Apple's text stands in when it fails or hears nothing.
 @MainActor
 final class FinalTranscription: TranscriptionSession {

@@ -59,6 +59,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in AppDelegate.current?.updateDockIcon() }
         }
         MCPManager.shared.syncConnections()
+        // Voice models a previous version never downloaded (a new install gets them in the onboarding).
+        if AppSettings.shared.isConfigured, !VoiceModels.shared.isComplete {
+            Task { await VoiceModels.shared.downloadAll() }
+        }
         NotchPanelController.shared.content = { AnyView(AssistantNotchContent()) }
         AssistantController.shared.attach(NotchPanelController.shared.model)
         if AppSettings.shared.assistantEnabled { NotchPanelController.shared.install() }
@@ -83,7 +87,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         ChatStore.shared.saveNow()
-        LocalWhisper.shared.stopServer()
     }
 
     /// With the notch assistant the app keeps running without windows; the Dock icon opens one again.

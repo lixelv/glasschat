@@ -24,8 +24,6 @@ final class AppSettings {
     /// The models besides the default one: the decision model that ranks tools for `search_tools` (e.g. Jev),
     /// transcription (`/audio/transcriptions`) and speech (`/audio/speech`). No model: their fallback.
     var decisionConnection: ModelConnection { didSet { save(decisionConnection, .decision) } }
-    var transcriptionConnection: ModelConnection { didSet { save(transcriptionConnection, .transcription) } }
-    var speechConnection: ModelConnection { didSet { save(speechConnection, .speech) } }
     /// When the file and terminal tools ask first.
     var confirmActions: ConfirmMode { didSet { defaults.set(confirmActions.rawValue, forKey: "confirmActions") } }
     var recognitionMode: RecognitionMode { didSet { defaults.set(recognitionMode.rawValue, forKey: "recognitionMode") } }
@@ -56,7 +54,8 @@ final class AppSettings {
     var assistantContextLimit: Int { didSet { defaults.set(assistantContextLimit, forKey: "assistantContextLimit") } }
     /// An `AVSpeechSynthesisVoice` identifier; empty: the voice of the system language.
     var systemVoice: String { didSet { defaults.set(systemVoice, forKey: "systemVoice") } }
-    var ttsVoice: String { didSet { defaults.set(ttsVoice, forKey: "ttsVoice") } }
+    /// The Supertonic voice ("F1"… "M5").
+    var supertonicVoice: String { didSet { defaults.set(supertonicVoice, forKey: "supertonicVoice") } }
     /// Empty: `AssistantPrompt.standard`.
     var assistantPrompt: String { didSet { defaults.set(assistantPrompt, forKey: "assistantPrompt") } }
     var assistantChatID: Chat.ID? { didSet { defaults.set(assistantChatID?.uuidString, forKey: "assistantChatID") } }
@@ -77,14 +76,8 @@ final class AppSettings {
             provider: ModelProvider.detect(oldDecisionURL), baseURL: oldDecisionURL,
             model: defaults.string(forKey: "decisionModel") ?? "",
             sameAsDefault: oldDecisionURL.isEmpty && (Keychain.token(Keychain.decisionAccount) ?? "").isEmpty)
-        let transcription = Self.load(.transcription) ?? ModelConnection(
-            provider: .openAI, baseURL: "", model: defaults.string(forKey: "transcriptionModel") ?? "", sameAsDefault: true)
-        transcriptionConnection = transcription
-        speechConnection = Self.load(.speech) ?? ModelConnection(
-            provider: .openAI, baseURL: "", model: defaults.string(forKey: "ttsModel") ?? "", sameAsDefault: true)
         confirmActions = defaults.string(forKey: "confirmActions").flatMap(ConfirmMode.init(rawValue:)) ?? .default
-        recognitionMode = defaults.string(forKey: "recognitionMode").flatMap(RecognitionMode.init(rawValue:))
-            ?? (transcription.model.isEmpty ? .default : .provider)
+        recognitionMode = RecognitionMode.migrated(defaults.string(forKey: "recognitionMode"))
         assistantEnabled = defaults.object(forKey: "assistantEnabled") as? Bool ?? true
         hoverToTalk = defaults.object(forKey: "hoverToTalk") as? Bool ?? true
         hoverDelay = defaults.object(forKey: "hoverDelay") as? Double ?? 0.3
@@ -99,7 +92,7 @@ final class AppSettings {
         speechWait = defaults.object(forKey: "speechWait") as? Double ?? 8
         assistantContextLimit = defaults.object(forKey: "assistantContextLimit") as? Int ?? 16
         systemVoice = defaults.string(forKey: "systemVoice") ?? ""
-        ttsVoice = defaults.string(forKey: "ttsVoice") ?? "alloy"
+        supertonicVoice = defaults.string(forKey: "supertonicVoice") ?? "F1"
         assistantPrompt = defaults.string(forKey: "assistantPrompt") ?? ""
         assistantChatID = defaults.string(forKey: "assistantChatID").flatMap(UUID.init(uuidString:))
     }
@@ -110,8 +103,6 @@ final class AppSettings {
         switch role {
         case .chat: ModelConnection(provider: chatProvider, baseURL: baseURL, model: defaultModel, sameAsDefault: false)
         case .decision: decisionConnection
-        case .transcription: transcriptionConnection
-        case .speech: speechConnection
         }
     }
 
@@ -127,8 +118,6 @@ final class AppSettings {
             token = newToken
             defaultModel = connection.model.trimmingCharacters(in: .whitespaces)
         case .decision: decisionConnection = connection
-        case .transcription: transcriptionConnection = connection
-        case .speech: speechConnection = connection
         }
         if role != .chat { Keychain.setToken(connection.sameAsDefault ? nil : newToken, role.keychainAccount) }
     }

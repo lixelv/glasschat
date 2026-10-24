@@ -37,14 +37,12 @@ enum ModelProvider: String, Codable, CaseIterable, Sendable {
 
 /// What a model is used for; each has its own connection.
 enum ModelRole: String, CaseIterable, Sendable {
-    case chat, decision, transcription, speech
+    case chat, decision
 
     var title: String {
         switch self {
         case .chat: "Default Model"
         case .decision: "Decision Model"
-        case .transcription: "Transcription Model"
-        case .speech: "Speech Model"
         }
     }
 
@@ -53,22 +51,13 @@ enum ModelRole: String, CaseIterable, Sendable {
         switch self {
         case .chat: nil
         case .decision: "None (match words)"
-        case .transcription: nil
-        case .speech: "None (macOS voice)"
         }
-    }
-
-    /// Filled in when the role has no model yet.
-    var suggestedModel: String? {
-        self == .transcription ? "openai/whisper-large-v3-turbo" : nil
     }
 
     var keychainAccount: String {
         switch self {
         case .chat: Keychain.mainAccount
         case .decision: Keychain.decisionAccount
-        case .transcription: "transcription-token"
-        case .speech: "speech-token"
         }
     }
 }

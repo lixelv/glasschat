@@ -1,7 +1,8 @@
 @preconcurrency import AVFoundation
 import Observation
+import Supertonic
 
-/// Says texts aloud: the macOS voice, or the TTS model of Settings (`/audio/speech`). One at a time.
+/// Says texts aloud: Supertonic 3 on this Mac, or the macOS voice until it is downloaded. One at a time.
 @Observable
 @MainActor
 final class Speaker {
@@ -15,9 +16,6 @@ final class Speaker {
 
     private var synthesizer: AVSpeechSynthesizer?
     private var playback: SynthPlayback?
-    private var player: AVAudioPlayer?
-    private var playerDelegate: PlayerDelegate?
-    private var meter: Task<Void, Never>?
     private var done: ResumeOnce<Bool>?
 
     private init() {}
@@ -33,16 +31,9 @@ final class Speaker {
         defer {
             if done === once { finishUp() }
         }
-        let settings = AppSettings.shared
-        let endpoint = settings.endpoint(.speech)
-        return try await withTaskCancellationHandler {
-            if let endpoint {
-                let client = OpenAIClient(baseURL: endpoint.url, token: endpoint.token)
-                let voice = settings.ttsVoice.trimmingCharacters(in: .whitespaces)
-                let data = try await client.speech(text, model: endpoint.model, voice: voice.isEmpty ? "alloy" : voice)
-                guard done === once else { return false }
-                try startPlayer(data, once: once)
-            } else {
+        return await withTaskCancellationHandler {
+            // Supertonic once it is downloaded; until then (or if it fails) the macOS voice.
+            if !(await startSupertonic(text, once: once)), done === once {
                 startSystemVoice(text, once: once)
             }
             return await withCheckedContinuation { once.set($0) }
@@ -66,15 +57,42 @@ final class Speaker {
         synthesizer = nil
         playback?.stop()
         playback = nil
-        player?.stop()
-        player = nil
-        playerDelegate = nil
-        meter?.cancel()
-        meter = nil
         done = nil
         isSpeaking = false
         speakingID = nil
         level = 0
+    }
+
+    /// Synthesizes the whole text, then plays it; false when Supertonic cannot (not downloaded, failed).
+    private func startSupertonic(_ text: String, once: ResumeOnce<Bool>) async -> Bool {
+        guard VoiceModels.shared.speech == .ready, let synthesizer = try? VoiceModels.shared.synthesizer() else { return false }
+        let voice = Voice(rawValue: AppSettings.shared.supertonicVoice) ?? .female1
+        let language = SupertonicLanguage.language(for: text)
+        guard let audio = try? await synthesizer.synthesize(text, in: language, with: voice), !audio.samples.isEmpty,
+              let format = AVAudioFormat(standardFormatWithSampleRate: Double(audio.sampleRate), channels: 1) else {
+            voiceLog.error("Supertonic failed; the macOS voice speaks")
+            return false
+        }
+        guard done === once else { return true }
+        let playback = SynthPlayback(
+            onLevel: { level in Task { @MainActor in Speaker.shared.setLevel(level, if: once) } },
+            onDone: { once.resume(true) })
+        self.playback = playback
+        // In pieces, so the avatar's mouth follows the voice.
+        let piece = 2048
+        var start = 0
+        while start < audio.samples.count {
+            let count = min(piece, audio.samples.count - start)
+            guard let buffer = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: AVAudioFrameCount(count)) else { break }
+            buffer.frameLength = AVAudioFrameCount(count)
+            audio.samples.withUnsafeBufferPointer { samples in
+                buffer.floatChannelData![0].update(from: samples.baseAddress! + start, count: count)
+            }
+            playback.receive(buffer)
+            start += count
+        }
+        if let end = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 1) { playback.receive(end) }
+        return true
     }
 
     private func startSystemVoice(_ text: String, once: ResumeOnce<Bool>) {
@@ -109,29 +127,6 @@ final class Speaker {
     private func setLevel(_ value: Double, if once: ResumeOnce<Bool>) {
         if done === once { level = value }
     }
-
-    private func startPlayer(_ data: Data, once: ResumeOnce<Bool>) throws {
-        let player = try AVAudioPlayer(data: data)
-        let delegate = PlayerDelegate { once.resume(true) }
-        player.delegate = delegate
-        player.isMeteringEnabled = true
-        self.player = player
-        playerDelegate = delegate
-        player.play()
-        meter = Task { @MainActor [weak player] in
-            while !Task.isCancelled, let player {
-                player.updateMeters()
-                self.level = min(max((Double(player.averagePower(forChannel: 0)) + 50) / 50, 0), 1)
-                try? await Task.sleep(for: .milliseconds(33))
-            }
-        }
-    }
-}
-
-private final class PlayerDelegate: NSObject, AVAudioPlayerDelegate, @unchecked Sendable {
-    private let finished: @Sendable () -> Void
-    init(_ finished: @escaping @Sendable () -> Void) { self.finished = finished }
-    func audioPlayerDidFinishPlaying(_ player: AVAudioPlayer, successfully flag: Bool) { finished() }
 }
 
 /// Plays the buffers the synthesizer writes and measures them; used on the synthesizer's and the engine's threads.
