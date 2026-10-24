@@ -2,9 +2,6 @@ import SwiftUI
 
 struct OnboardingView: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var baseURL = AppSettings.shared.baseURL
-    @State private var token = AppSettings.shared.token
-    @State private var model = AppSettings.shared.defaultModel
 
     var body: some View {
         VStack(spacing: 0) {
@@ -22,40 +19,9 @@ struct OnboardingView: View {
             }
             .padding(.top, 28)
 
-            Form {
-                ConnectionFields(baseURL: $baseURL, token: $token, model: $model)
-            }
-            .formStyle(.grouped)
-            .scrollDisabled(true)
-            .frame(height: 300)
-
-            HStack {
-                Spacer()
-                Button("Continue", action: save)
-                    .buttonStyle(.glassProminent)
-                    .controlSize(.large)
-                    .keyboardShortcut(.defaultAction)
-                    .disabled(!canContinue)
-            }
-            .padding([.horizontal, .bottom], 20)
+            ModelConnectionEditor(role: .chat, doneTitle: "Continue", showsCancel: false)
         }
-        .frame(width: 500)
+        .frame(width: 480)
         .interactiveDismissDisabled()
-    }
-
-    private var canContinue: Bool {
-        AppSettings.normalize(baseURL) != nil && !token.isEmpty && !model.trimmingCharacters(in: .whitespaces).isEmpty
-    }
-
-    private func save() {
-        let settings = AppSettings.shared
-        settings.baseURL = baseURL
-        settings.token = token
-        settings.defaultModel = model.trimmingCharacters(in: .whitespaces)
-        for chat in ChatStore.shared.chats where chat.model.isEmpty {
-            ChatStore.shared.update(chat.id) { $0.model = settings.defaultModel }
-        }
-        Task { await ModelStore.shared.refresh() }
-        dismiss()
     }
 }

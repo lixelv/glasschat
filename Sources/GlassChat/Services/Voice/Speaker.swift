@@ -34,19 +34,16 @@ final class Speaker {
             if done === once { finishUp() }
         }
         let settings = AppSettings.shared
-        let model = settings.ttsModel.trimmingCharacters(in: .whitespaces)
+        let endpoint = settings.endpoint(.speech)
         return try await withTaskCancellationHandler {
-            if model.isEmpty {
-                startSystemVoice(text, once: once)
-            } else {
-                guard let baseURL = settings.normalizedBaseURL else {
-                    throw APIError(status: nil, message: "The base URL is not valid. Open Settings to fix it.", url: nil)
-                }
-                let client = OpenAIClient(baseURL: baseURL, token: settings.token)
+            if let endpoint {
+                let client = OpenAIClient(baseURL: endpoint.url, token: endpoint.token)
                 let voice = settings.ttsVoice.trimmingCharacters(in: .whitespaces)
-                let data = try await client.speech(text, model: model, voice: voice.isEmpty ? "alloy" : voice)
+                let data = try await client.speech(text, model: endpoint.model, voice: voice.isEmpty ? "alloy" : voice)
                 guard done === once else { return false }
                 try startPlayer(data, once: once)
+            } else {
+                startSystemVoice(text, once: once)
             }
             return await withCheckedContinuation { once.set($0) }
         } onCancel: {

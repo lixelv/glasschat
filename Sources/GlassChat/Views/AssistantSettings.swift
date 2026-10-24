@@ -11,6 +11,20 @@ struct AssistantSettings: View {
     var body: some View {
         Form {
             Section {
+                ModelRow(role: .chat)
+                ModelRow(role: .decision)
+                if settings.endpoint(.decision) != nil {
+                    IntField("Tools per search", value: $settings.decisionTopN, range: 1...50)
+                }
+                ModelRow(role: .transcription)
+                ModelRow(role: .speech)
+            } header: {
+                Text("Models")
+            } footer: {
+                footer("New chats and the assistant use the default model; a chat picks its own under the message field. The decision model ranks tools for the tool search; empty: matched by words.")
+            }
+
+            Section {
                 Toggle("Assistant in the Notch", isOn: $settings.assistantEnabled)
                     .onChange(of: settings.assistantEnabled) { _, _ in
                         NotificationCenter.default.post(name: .assistantToggled, object: nil)
@@ -22,7 +36,6 @@ struct AssistantSettings: View {
             }
 
             Section {
-                TextField("Transcription Model", text: $settings.transcriptionModel, prompt: Text("whisper-1"))
                 Picker("Language", selection: $settings.transcriptionLanguage) {
                     Text("System").tag("")
                     ForEach(locales, id: \.identifier) { locale in
@@ -30,14 +43,14 @@ struct AssistantSettings: View {
                             .tag(locale.identifier)
                     }
                 }
-                .disabled(!settings.transcriptionModel.isEmpty)
+                .disabled(settings.endpoint(.transcription) != nil)
                 NumberField("Pause that ends a phrase", value: $settings.silencePause, range: 0.5...5, step: 0.1, unit: "s")
                 NumberField("Keep listening after an answer", value: $settings.followUpWindow, range: 0...60, step: 1, unit: "s")
                 IntField("Messages sent to the model", value: $settings.assistantContextLimit, range: 0...200)
             } header: {
                 Text("Listening")
             } footer: {
-                footer("Empty model: on-device Apple recognition. Messages 0: the whole chat.")
+                footer("Language of Apple recognition (without a transcription model). Messages 0: the whole chat.")
             }
 
             Section {
@@ -47,15 +60,14 @@ struct AssistantSettings: View {
                         Text("\(voice.name) (\(voice.language))").tag(voice.identifier)
                     }
                 }
-                .disabled(!settings.ttsModel.isEmpty)
-                TextField("TTS Model", text: $settings.ttsModel, prompt: Text("gpt-4o-mini-tts"))
-                if !settings.ttsModel.isEmpty {
-                    TextField("TTS Voice", text: $settings.ttsVoice, prompt: Text("alloy"))
+                .disabled(settings.endpoint(.speech) != nil)
+                if settings.endpoint(.speech) != nil {
+                    TextField("Voice of the Speech Model", text: $settings.ttsVoice, prompt: Text("alloy"))
                 }
             } header: {
                 Text("Voice")
             } footer: {
-                footer("Empty model: the macOS voice.")
+                footer("Without a speech model: the macOS voice.")
             }
 
             Section {

@@ -15,8 +15,7 @@ enum Transcription {
     @MainActor
     static func start(inputFormat: AVAudioFormat, onPartial: @escaping @MainActor (String) -> Void,
                       onProgress: @escaping @MainActor (Double?) -> Void) async throws -> any TranscriptionSession {
-        let settings = AppSettings.shared
-        if !settings.transcriptionModel.trimmingCharacters(in: .whitespaces).isEmpty {
+        if AppSettings.shared.endpoint(.transcription) != nil {
             return APITranscription()
         }
         return try await AppleTranscription.start(locale: language, onPartial: onPartial, onProgress: onProgress)
@@ -177,13 +176,12 @@ final class APITranscription: TranscriptionSession {
     nonisolated func append(_ buffer: AVAudioPCMBuffer) {}
 
     func finish(_ recording: Recording) async throws -> String {
-        let settings = AppSettings.shared
-        guard let baseURL = settings.normalizedBaseURL else {
-            throw APIError(status: nil, message: "The base URL is not valid. Open Settings to fix it.", url: nil)
+        guard let endpoint = AppSettings.shared.endpoint(.transcription) else {
+            throw APIError(status: nil, message: "The transcription model's address is not valid (Settings → Assistant).", url: nil)
         }
         let wav = try Data(contentsOf: recording.url)
-        let client = OpenAIClient(baseURL: baseURL, token: settings.token)
-        let model = settings.transcriptionModel.trimmingCharacters(in: .whitespaces)
+        let client = OpenAIClient(baseURL: endpoint.url, token: endpoint.token)
+        let model = endpoint.model
         let language = Transcription.language.language.languageCode?.identifier
         let task = Task { try await client.transcribe(wav: wav, model: model, language: language) }
         self.task = task

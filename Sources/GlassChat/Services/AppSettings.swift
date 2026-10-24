@@ -10,6 +10,8 @@ final class AppSettings {
     private let defaults = UserDefaults.standard
 
     var baseURL: String { didSet { defaults.set(baseURL, forKey: "baseURL") } }
+    /// The default model's provider (its address is `baseURL`, its token `token`).
+    var chatProvider: ModelProvider { didSet { defaults.set(chatProvider.rawValue, forKey: "chatProvider") } }
     var defaultModel: String { didSet { defaults.set(defaultModel, forKey: "defaultModel") } }
     var systemPrompt: String { didSet { defaults.set(systemPrompt, forKey: "systemPrompt") } }
     var token: String { didSet { Keychain.setToken(token) } }
@@ -17,19 +19,17 @@ final class AppSettings {
     /// Tool groups switched off (MCP server names, `AppTool.key`): one choice for every chat.
     var disabledTools: Set<String> { didSet { defaults.set(Array(disabledTools), forKey: "disabledTools") } }
 
-    /// The decision model that ranks tools for `search_tools` (e.g. a Jev model); empty = word search.
-    var decisionModel: String { didSet { defaults.set(decisionModel, forKey: "decisionModel") } }
     /// How many tools a search hands to the model.
     var decisionTopN: Int { didSet { defaults.set(decisionTopN, forKey: "decisionTopN") } }
-    /// Empty: the same base URL and token as the chat.
-    var decisionBaseURL: String { didSet { defaults.set(decisionBaseURL, forKey: "decisionBaseURL") } }
-    var decisionToken: String { didSet { Keychain.setToken(decisionToken, Keychain.decisionAccount) } }
+    /// The models besides the default one: the decision model that ranks tools for `search_tools` (e.g. Jev),
+    /// transcription (`/audio/transcriptions`) and speech (`/audio/speech`). No model: their fallback.
+    var decisionConnection: ModelConnection { didSet { save(decisionConnection, .decision) } }
+    var transcriptionConnection: ModelConnection { didSet { save(transcriptionConnection, .transcription) } }
+    var speechConnection: ModelConnection { didSet { save(speechConnection, .speech) } }
 
     // MARK: Notch assistant
 
     var assistantEnabled: Bool { didSet { defaults.set(assistantEnabled, forKey: "assistantEnabled") } }
-    /// The `/audio/transcriptions` model; empty: on-device Apple recognition.
-    var transcriptionModel: String { didSet { defaults.set(transcriptionModel, forKey: "transcriptionModel") } }
     /// A locale identifier for Apple recognition; empty: the system's.
     var transcriptionLanguage: String { didSet { defaults.set(transcriptionLanguage, forKey: "transcriptionLanguage") } }
     /// Seconds of silence that end a phrase.
@@ -42,8 +42,6 @@ final class AppSettings {
     var assistantContextLimit: Int { didSet { defaults.set(assistantContextLimit, forKey: "assistantContextLimit") } }
     /// An `AVSpeechSynthesisVoice` identifier; empty: the voice of the system language.
     var systemVoice: String { didSet { defaults.set(systemVoice, forKey: "systemVoice") } }
-    /// The `/audio/speech` model; empty: the macOS voice.
-    var ttsModel: String { didSet { defaults.set(ttsModel, forKey: "ttsModel") } }
     var ttsVoice: String { didSet { defaults.set(ttsVoice, forKey: "ttsVoice") } }
     /// Empty: `AssistantPrompt.standard`.
     var assistantPrompt: String { didSet { defaults.set(assistantPrompt, forKey: "assistantPrompt") } }
@@ -55,29 +53,72 @@ final class AppSettings {
         systemPrompt = defaults.string(forKey: "systemPrompt") ?? ""
         token = Keychain.token() ?? ""
         disabledTools = Set(defaults.stringArray(forKey: "disabledTools") ?? [])
-        decisionModel = defaults.string(forKey: "decisionModel") ?? ""
         decisionTopN = defaults.object(forKey: "decisionTopN") as? Int ?? 4
-        decisionBaseURL = defaults.string(forKey: "decisionBaseURL") ?? ""
-        decisionToken = Keychain.token(Keychain.decisionAccount) ?? ""
+        chatProvider = defaults.string(forKey: "chatProvider").flatMap(ModelProvider.init(rawValue:))
+            ?? ModelProvider.detect(defaults.string(forKey: "baseURL") ?? Self.defaultBaseURL)
+        // Saved before connections existed: the decision model had its own (or the chat's) address and token,
+        // the audio models used the chat's.
+        let oldDecisionURL = defaults.string(forKey: "decisionBaseURL") ?? ""
+        decisionConnection = Self.load(.decision) ?? ModelConnection(
+            provider: ModelProvider.detect(oldDecisionURL), baseURL: oldDecisionURL,
+            model: defaults.string(forKey: "decisionModel") ?? "",
+            sameAsDefault: oldDecisionURL.isEmpty && (Keychain.token(Keychain.decisionAccount) ?? "").isEmpty)
+        transcriptionConnection = Self.load(.transcription) ?? ModelConnection(
+            provider: .openAI, baseURL: "", model: defaults.string(forKey: "transcriptionModel") ?? "", sameAsDefault: true)
+        speechConnection = Self.load(.speech) ?? ModelConnection(
+            provider: .openAI, baseURL: "", model: defaults.string(forKey: "ttsModel") ?? "", sameAsDefault: true)
         assistantEnabled = defaults.object(forKey: "assistantEnabled") as? Bool ?? true
-        transcriptionModel = defaults.string(forKey: "transcriptionModel") ?? ""
         transcriptionLanguage = defaults.string(forKey: "transcriptionLanguage") ?? ""
         silencePause = defaults.object(forKey: "silencePause") as? Double ?? 1.5
         followUpWindow = defaults.object(forKey: "followUpWindow") as? Double ?? 15
         speechWait = defaults.object(forKey: "speechWait") as? Double ?? 8
         assistantContextLimit = defaults.object(forKey: "assistantContextLimit") as? Int ?? 16
         systemVoice = defaults.string(forKey: "systemVoice") ?? ""
-        ttsModel = defaults.string(forKey: "ttsModel") ?? ""
         ttsVoice = defaults.string(forKey: "ttsVoice") ?? "alloy"
         assistantPrompt = defaults.string(forKey: "assistantPrompt") ?? ""
         assistantChatID = defaults.string(forKey: "assistantChatID").flatMap(UUID.init(uuidString:))
     }
 
-    /// Where and with which token the decision model is asked.
-    var decisionConnection: (url: URL, token: String)? {
-        let trimmed = decisionBaseURL.trimmingCharacters(in: .whitespaces)
-        guard let base = trimmed.isEmpty ? normalizedBaseURL : Self.normalize(trimmed) else { return nil }
-        return (base, decisionToken.isEmpty ? token : decisionToken)
+    // MARK: Model connections
+
+    func connection(_ role: ModelRole) -> ModelConnection {
+        switch role {
+        case .chat: ModelConnection(provider: chatProvider, baseURL: baseURL, model: defaultModel, sameAsDefault: false)
+        case .decision: decisionConnection
+        case .transcription: transcriptionConnection
+        case .speech: speechConnection
+        }
+    }
+
+    func token(_ role: ModelRole) -> String {
+        role == .chat ? token : Keychain.token(role.keychainAccount) ?? ""
+    }
+
+    func setConnection(_ connection: ModelConnection, token newToken: String, for role: ModelRole) {
+        switch role {
+        case .chat:
+            chatProvider = connection.provider
+            baseURL = connection.baseURL
+            token = newToken
+            defaultModel = connection.model.trimmingCharacters(in: .whitespaces)
+        case .decision: decisionConnection = connection
+        case .transcription: transcriptionConnection = connection
+        case .speech: speechConnection = connection
+        }
+        if role != .chat { Keychain.setToken(connection.sameAsDefault ? nil : newToken, role.keychainAccount) }
+    }
+
+    /// Where to call the model of a role; nil when it has none (or a bad address).
+    func endpoint(_ role: ModelRole) -> ModelEndpoint? {
+        ModelConnection.resolve(connection(role), token: token(role), defaultURL: baseURL, defaultToken: token)
+    }
+
+    private func save(_ connection: ModelConnection, _ role: ModelRole) {
+        defaults.set(try? JSONEncoder().encode(connection), forKey: "connection." + role.rawValue)
+    }
+
+    private static func load(_ role: ModelRole) -> ModelConnection? {
+        UserDefaults.standard.data(forKey: "connection." + role.rawValue).flatMap { try? JSONDecoder().decode(ModelConnection.self, from: $0) }
     }
 
     var isConfigured: Bool {
@@ -88,7 +129,7 @@ final class AppSettings {
         Self.normalize(baseURL)
     }
 
-    static func normalize(_ string: String) -> URL? {
+    nonisolated static func normalize(_ string: String) -> URL? {
         var s = string.trimmingCharacters(in: .whitespacesAndNewlines)
         while s.hasSuffix("/") { s.removeLast() }
         guard let url = URL(string: s), url.scheme != nil, url.host() != nil else { return nil }

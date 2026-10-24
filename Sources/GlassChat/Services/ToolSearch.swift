@@ -25,17 +25,14 @@ enum ToolSearch {
     static func search(_ query: String, among candidates: [String: String]) async throws -> [Hit] {
         let settings = AppSettings.shared
         let limit = max(1, settings.decisionTopN)
-        let model = settings.decisionModel.trimmingCharacters(in: .whitespaces)
+        let endpoint = settings.endpoint(.decision)
         guard !candidates.isEmpty else { return [] }
         // An exact function name (or the tool part of it) is found whatever ranks it.
         let wanted = query.trimmingCharacters(in: .whitespaces).lowercased()
         let exact = candidates.keys.filter { $0.lowercased() == wanted || $0.lowercased().hasSuffix("__" + wanted) }
         if !exact.isEmpty { return exact.sorted().map { Hit(name: $0, probability: nil) } }
-        if model.isEmpty { return Array(wordSearch(query, candidates).prefix(limit)) }
-        guard let connection = settings.decisionConnection else {
-            throw MCPError(message: "The decision model's base URL is not valid (Settings → Connection).")
-        }
-        let ranked = try await decide(query, candidates, model: model, base: connection.url, token: connection.token)
+        guard let endpoint else { return Array(wordSearch(query, candidates).prefix(limit)) }
+        let ranked = try await decide(query, candidates, model: endpoint.model, base: endpoint.url, token: endpoint.token)
         return Array(ranked.prefix(limit))
     }
 
