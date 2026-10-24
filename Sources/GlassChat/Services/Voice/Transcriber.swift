@@ -15,10 +15,17 @@ enum Transcription {
     @MainActor
     static func start(inputFormat: AVAudioFormat, onPartial: @escaping @MainActor (String) -> Void,
                       onProgress: @escaping @MainActor (Double?) -> Void) async throws -> any TranscriptionSession {
-        if AppSettings.shared.endpoint(.transcription) != nil {
-            return APITranscription()
+        // Apple always shows the words while they are spoken; a transcription model, when set, writes the final text,
+        // and Apple's stands in when the model fails.
+        let apple: AppleTranscription?
+        do {
+            apple = try await AppleTranscription.start(locale: language, onPartial: onPartial, onProgress: onProgress)
+        } catch {
+            guard AppSettings.shared.endpoint(.transcription) != nil else { throw error }
+            apple = nil
         }
-        return try await AppleTranscription.start(locale: language, onPartial: onPartial, onProgress: onProgress)
+        guard AppSettings.shared.endpoint(.transcription) != nil else { return apple! }
+        return APITranscription(fallback: apple)
     }
 
     /// The language of Settings, or the system's.
@@ -172,10 +179,29 @@ final class AppleTranscription: TranscriptionSession {
 @MainActor
 final class APITranscription: TranscriptionSession {
     private var task: Task<String, Error>?
+    private let fallback: AppleTranscription?
 
-    nonisolated func append(_ buffer: AVAudioPCMBuffer) {}
+    init(fallback: AppleTranscription?) {
+        self.fallback = fallback
+    }
+
+    nonisolated func append(_ buffer: AVAudioPCMBuffer) {
+        fallback?.append(buffer)
+    }
 
     func finish(_ recording: Recording) async throws -> String {
+        let apple = try? await fallback?.finish(recording)
+        do {
+            let text = try await transcribe(recording)
+            return text.isEmpty ? apple ?? "" : text
+        } catch {
+            guard let apple, !Task.isCancelled else { throw error }
+            voiceLog.error("transcription model failed, Apple's text used: \(error.localizedDescription, privacy: .public)")
+            return apple
+        }
+    }
+
+    private func transcribe(_ recording: Recording) async throws -> String {
         guard let endpoint = AppSettings.shared.endpoint(.transcription) else {
             throw APIError(status: nil, message: "The transcription model's address is not valid (Settings → Assistant).", url: nil)
         }
@@ -190,5 +216,6 @@ final class APITranscription: TranscriptionSession {
 
     func cancel() {
         task?.cancel()
+        fallback?.cancel()
     }
 }
