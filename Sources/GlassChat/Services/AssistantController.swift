@@ -64,7 +64,8 @@ final class AssistantController {
 
     var level: Double { Speaker.shared.isSpeaking ? Speaker.shared.level : recorder.level }
 
-    var isBusy: Bool { phase != .idle || Speaker.shared.isSpeaking }
+    /// From the moment a conversation starts (it may still be asking for the microphone) until it is over.
+    var isBusy: Bool { cycle != nil || phase != .idle || Speaker.shared.isSpeaking }
 
     // MARK: The notch
 

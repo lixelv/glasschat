@@ -35,11 +35,12 @@ enum NotchGeometry {
 
     enum Click: Equatable { case expand, collapse, none }
 
-    /// What a click at a screen point does: open the folded notch, fold the open one when it is elsewhere.
-    static func click(at point: CGPoint, shape: CGRect, expanded: Bool) -> Click {
+    /// What a click at a screen point does: open the folded notch, fold the open one when it is elsewhere —
+    /// unless the assistant is busy (listening, thinking, speaking): then only Esc, the shortcut and Stop fold it.
+    static func click(at point: CGPoint, shape: CGRect, expanded: Bool, busy: Bool = false) -> Click {
         let inside = shape.contains(point)
         if inside { return expanded ? .none : .expand }
-        return expanded ? .collapse : .none
+        return expanded && !busy ? .collapse : .none
     }
 
     /// The built-in screen with a notch, else the main one.

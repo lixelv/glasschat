@@ -22,6 +22,8 @@ extension SelfTests {
         expect(NotchGeometry.click(at: CGPoint(x: 756, y: 960), shape: shape, expanded: true) == NotchGeometry.Click.none, "click inside the open notch")
         expect(NotchGeometry.click(at: CGPoint(x: 808, y: 574), shape: CGRect(x: 510, y: 900, width: 492, height: 82), expanded: true) == .collapse, "click elsewhere folds it")
         expect(NotchGeometry.click(at: CGPoint(x: 100, y: 100), shape: shape, expanded: false) == NotchGeometry.Click.none, "click elsewhere while folded")
+        // While the assistant listens, thinks or speaks, only Esc, the shortcut and Stop fold it.
+        expect(NotchGeometry.click(at: CGPoint(x: 808, y: 574), shape: CGRect(x: 510, y: 900, width: 492, height: 82), expanded: true, busy: true) == NotchGeometry.Click.none, "click elsewhere while busy keeps it open")
     }
 }
 #endif

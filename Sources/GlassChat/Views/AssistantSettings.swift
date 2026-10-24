@@ -33,7 +33,7 @@ struct AssistantSettings: View {
             } header: {
                 Text("Notch Assistant")
             } footer: {
-                footer("Click the notch or press the shortcut to talk; the shortcut again folds it. Closing the window keeps GlassChat running while this is on.")
+                footer("Click the notch or press the shortcut to talk. While the assistant listens, thinks or speaks, Esc, the shortcut or Stop folds it; otherwise a click elsewhere does too. Closing the window keeps GlassChat running while this is on.")
             }
 
             Section {

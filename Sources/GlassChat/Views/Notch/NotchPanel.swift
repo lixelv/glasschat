@@ -117,7 +117,10 @@ final class NotchPanelController {
 
     private nonisolated static func describe(_ event: NSEvent) -> String {
         let age = ProcessInfo.processInfo.systemUptime - event.timestamp
-        return "window \(event.window.map { String(describing: type(of: $0)) } ?? "none") number \(event.eventNumber) clicks \(event.clickCount) age \(String(format: "%.2f", age))s"
+        // The process that posted it: 0 for the trackpad or the mouse.
+        let source = event.cgEvent?.getIntegerValueField(.eventSourceUnixProcessID) ?? -1
+        let state = event.cgEvent?.getIntegerValueField(.eventSourceStateID) ?? -1
+        return "window \(event.window.map { String(describing: type(of: $0)) } ?? "none") number \(event.eventNumber) clicks \(event.clickCount) age \(String(format: "%.2f", age))s source pid \(source) state \(state)"
     }
 
     /// An event's place on the screen (a global event has no window: its location is already on the screen).
@@ -137,7 +140,7 @@ final class NotchPanelController {
     /// A click anywhere but on the open panel: one that went through the transparent panel onto the notch's
     /// shape opens it, one elsewhere folds it.
     private func clicked(at point: CGPoint) {
-        switch NotchGeometry.click(at: point, shape: shapeFrame, expanded: model.isExpanded) {
+        switch NotchGeometry.click(at: point, shape: shapeFrame, expanded: model.isExpanded, busy: model.isBusy) {
         case .expand: expand()
         case .collapse:
             voiceLog.debug("click outside the notch at \(point.debugDescription, privacy: .public)")
