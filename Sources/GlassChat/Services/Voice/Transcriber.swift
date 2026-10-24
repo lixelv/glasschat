@@ -3,7 +3,7 @@ import Speech
 
 /// Turns one recorded phrase into text: live while it is spoken (Apple) or after it (the API).
 @MainActor
-protocol TranscriptionSession: AnyObject {
+protocol TranscriptionSession: AnyObject, Sendable {
     /// Every microphone buffer, on the audio thread.
     nonisolated func append(_ buffer: AVAudioPCMBuffer)
     func finish(_ recording: Recording) async throws -> String

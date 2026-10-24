@@ -59,6 +59,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in AppDelegate.current?.updateDockIcon() }
         }
         MCPManager.shared.syncConnections()
+        NotchPanelController.shared.content = { AnyView(AssistantNotchContent()) }
+        AssistantController.shared.attach(NotchPanelController.shared.model)
         if AppSettings.shared.assistantEnabled { NotchPanelController.shared.install() }
         #if DEBUG
         if ProcessInfo.processInfo.environment["GLASSCHAT_NOTCH_DEMO"] == "1" { NotchDemo.start() }

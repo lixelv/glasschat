@@ -3,10 +3,17 @@ import SwiftUI
 
 struct MarkdownMessage: View {
     let text: String
+    /// Smaller text (the notch).
+    var compact = false
 
     var body: some View {
         Markdown(MathMarkdown.prepare(text))
             .markdownTheme(.glassChat)
+            .markdownTextStyle(\.text) {
+                FontFamily(.system())
+                FontSize(compact ? NSFont.systemFontSize : NSFont.systemFontSize + 1)
+                ForegroundColor(.primary)
+            }
             .markdownImageProvider(MathImageProvider())
             .markdownInlineImageProvider(MathInlineImageProvider())
             .textSelection(.enabled)
