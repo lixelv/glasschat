@@ -34,7 +34,7 @@ struct OnboardingView: View {
                 }
                 .formStyle(.grouped)
                 .frame(height: 300)
-                .task { await VoiceModels.shared.downloadAll() }
+                .onAppear { VoiceModels.shared.startDownloads() }
                 HStack {
                     Spacer()
                     Button(VoiceModels.shared.isComplete ? "Done" : "Continue") { dismiss() }

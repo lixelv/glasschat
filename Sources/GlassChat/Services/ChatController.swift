@@ -123,6 +123,22 @@ final class ChatController {
                                 (text, isError) = args == nil ? ("The arguments are not valid JSON.", true)
                                     : await tool.run(args!, chatID: id, callID: call.id, controller: self)
                             } else {
+                                // A registry entry that starts a command is confirmed like app_bash.
+                                if case .registry(let tool) = function.target,
+                                   let args = JSONValue.parse(call.arguments.isEmpty ? "{}" : call.arguments),
+                                   let action = RegistryGate.action(for: tool.rawValue, args: args) {
+                                    do { try await ActionGate.check(action, callID: call.id, chat: id) }
+                                    catch {
+                                        self.edit(id, assistant.id) { message in
+                                            guard let s = message.steps.firstIndex(where: { $0.id == step.id }),
+                                                  let c = message.steps[s].calls.firstIndex(where: { $0.id == call.id }) else { return }
+                                            message.steps[s].calls[c].result = error.localizedDescription
+                                            message.steps[s].calls[c].isError = true
+                                            message.steps[s].calls[c].finishedAt = .now
+                                        }
+                                        return (error.localizedDescription, true)
+                                    }
+                                }
                                 (text, isError) = await MCPManager.shared.call(function, arguments: call.arguments)
                             }
                             self.edit(id, assistant.id) { message in
@@ -141,6 +157,8 @@ final class ChatController {
                         guard let value = await value(of: task) else { break }
                         results[call.id] = value
                     }
+                    // Stop ends every call of the round (commands, cards), not only the one waited for.
+                    if Task.isCancelled { running.forEach { $0.cancel() } }
                     for call in round {
                         turns.append(.object([
                             "role": .string("tool"),

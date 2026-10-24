@@ -61,7 +61,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         MCPManager.shared.syncConnections()
         // Voice models a previous version never downloaded (a new install gets them in the onboarding).
         if AppSettings.shared.isConfigured, !VoiceModels.shared.isComplete {
-            Task { await VoiceModels.shared.downloadAll() }
+            VoiceModels.shared.startDownloads()
         }
         NotchPanelController.shared.content = { AnyView(AssistantNotchContent()) }
         AssistantController.shared.attach(NotchPanelController.shared.model)

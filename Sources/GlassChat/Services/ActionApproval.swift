@@ -23,13 +23,14 @@ enum ApprovalPolicy {
     enum Verdict: Equatable { case run, ask(dangerous: Bool) }
 
     /// `safeProbability`: how sure the decision model is the action is harmless (nil: no answer).
-    static func verdict(mode: ConfirmMode, safeProbability: Double?, allowedInChat: Bool) -> Verdict {
+    /// `judgedWhole`: the decision model saw all of the action (a longer one could hide its danger past the cut).
+    static func verdict(mode: ConfirmMode, safeProbability: Double?, allowedInChat: Bool, judgedWhole: Bool = true) -> Verdict {
         if allowedInChat { return .run }
         switch mode {
         case .never: return .run
         case .always: return .ask(dangerous: false)
         case .auto:
-            guard let safe = safeProbability, safe >= 0.5 else { return .ask(dangerous: true) }
+            guard judgedWhole, let safe = safeProbability, safe >= 0.5 else { return .ask(dangerous: true) }
             return .run
         }
     }
@@ -37,7 +38,8 @@ enum ApprovalPolicy {
 
 /// An action waiting for the user's word.
 struct PendingAction: Sendable {
-    let tool: AppTool
+    /// The tool's name ("app_bash", "_mcp_registry_add").
+    let tool: String
     /// "Run a command", "Write /path".
     let summary: String
     /// The command, or the text going in.
@@ -58,54 +60,73 @@ final class ApprovalCenter {
         let action: PendingAction
     }
 
-    private(set) var pending: [Chat.ID: Pending] = [:]
-    private var waiting: [Chat.ID: ResumeOnce<ApprovalDecision>] = [:]
+    /// Actions waiting in each chat, in order: the card shows the first (parallel calls wait their turn).
+    private var queues: [Chat.ID: [Entry]] = [:]
+    private struct Entry {
+        let id = UUID()
+        let pending: Pending
+        let once: ResumeOnce<ApprovalDecision>
+    }
+
+    /// The action the card asks about, per chat.
+    var pending: [Chat.ID: Pending] { queues.compactMapValues { $0.first?.pending } }
     /// "chat|tool" allowed until the app quits.
     private var allowed: Set<String> = []
 
     private init() {}
 
-    func isAllowed(_ tool: AppTool, in chat: Chat.ID) -> Bool {
-        allowed.contains("\(chat)|\(tool.rawValue)")
+    func isAllowed(_ tool: String, in chat: Chat.ID) -> Bool {
+        allowed.contains("\(chat)|\(tool)")
     }
 
     /// True when the user allows it; false when they deny it, or the answer is stopped.
     func approve(_ action: PendingAction, callID: String, in chat: Chat.ID) async -> Bool {
-        dismiss(in: chat)
-        let once = ResumeOnce<ApprovalDecision>()
-        pending[chat] = Pending(callID: callID, action: action)
-        waiting[chat] = once
+        let entry = Entry(pending: Pending(callID: callID, action: action), once: ResumeOnce<ApprovalDecision>())
+        queues[chat, default: []].append(entry)
         let decision = await withTaskCancellationHandler {
-            await withCheckedContinuation { once.set($0) }
+            await withCheckedContinuation { entry.once.set($0) }
         } onCancel: {
-            once.resume(.deny)
-            Task { @MainActor in ApprovalCenter.shared.dismiss(in: chat) }
+            entry.once.resume(.deny)
+            Task { @MainActor in ApprovalCenter.shared.remove(entry.id, in: chat) }
         }
-        if decision == .allowInChat { allowed.insert("\(chat)|\(action.tool.rawValue)") }
+        remove(entry.id, in: chat)
+        if decision == .allowInChat { allowed.insert("\(chat)|\(action.tool)") }
         return decision != .deny
     }
 
+    /// Answers the action the card shows.
     func answer(_ decision: ApprovalDecision, in chat: Chat.ID) {
-        pending[chat] = nil
-        waiting.removeValue(forKey: chat)?.resume(decision)
+        guard let first = queues[chat]?.first else { return }
+        first.once.resume(decision)
+        remove(first.id, in: chat)
     }
 
+    /// Denies everything waiting in the chat (Stop, the chat deleted).
     func dismiss(in chat: Chat.ID) {
-        answer(.deny, in: chat)
+        for entry in queues.removeValue(forKey: chat) ?? [] { entry.once.resume(.deny) }
+    }
+
+    private func remove(_ id: UUID, in chat: Chat.ID) {
+        queues[chat]?.removeAll { $0.id == id }
+        if queues[chat]?.isEmpty == true { queues[chat] = nil }
     }
 }
 
 /// The check before a file or terminal tool runs.
 enum ActionGate {
+    /// What the decision model is shown of an action; anything longer is asked.
+    static let judgedLength = 2000
+
     /// Returns when the action may run; throws when the user denied it.
     @MainActor
     static func check(_ action: PendingAction, callID: String, chat: Chat.ID) async throws {
         let mode = AppSettings.shared.confirmActions
         let center = ApprovalCenter.shared
         let allowed = center.isAllowed(action.tool, in: chat)
+        let whole = action.detail.count <= ActionGate.judgedLength
         var safe: Double?
-        if mode == .auto, !allowed { safe = await safeProbability(action) }
-        switch ApprovalPolicy.verdict(mode: mode, safeProbability: safe, allowedInChat: allowed) {
+        if mode == .auto, !allowed, whole { safe = await safeProbability(action) }
+        switch ApprovalPolicy.verdict(mode: mode, safeProbability: safe, allowedInChat: allowed, judgedWhole: whole) {
         case .run:
             return
         case .ask(let dangerous):
@@ -121,7 +142,7 @@ enum ActionGate {
     @MainActor
     private static func safeProbability(_ action: PendingAction) async -> Double? {
         guard let endpoint = AppSettings.shared.endpoint(.decision) else { return nil }
-        let state = "An assistant on the user's Mac wants to do this (\(action.tool.rawValue)): \(action.summary)\n\(action.detail.prefix(2000))"
+        let state = "An assistant on the user's Mac wants to do this (\(action.tool)): \(action.summary)\n\(action.detail)"
         let options = [
             "safe": "Harmless: reads, lists, builds or edits the user's own project files in an ordinary way; nothing is lost, sent away or changed in the system.",
             "dangerous": "Can destroy or overwrite data, delete files, send data or secrets elsewhere, install or run downloaded code, change system settings, or use sudo.",
@@ -171,5 +192,24 @@ enum Decisions {
         }
         if result.isEmpty, let choice = answer["choice"]?.string, options[choice] != nil { result[choice] = 1 }
         return result
+    }
+}
+
+/// The registry tools that start a program (an MCP server's command) count as running a command.
+enum RegistryGate {
+    /// The action to confirm before `name` runs with `args`; nil when it starts nothing. `existing`: the entry
+    /// an enable switches on.
+    static func action(for name: String, args: JSONValue, existing: JSONValue? = nil) -> PendingAction? {
+        let config: JSONValue?
+        switch name {
+        case "_mcp_registry_add", "_mcp_registry_update": config = args["config"]
+        case "_app_enable_mcp": config = existing
+        default: return nil
+        }
+        guard let command = config?["command"]?.string else { return nil }
+        let arguments = (config?["args"]?.array ?? []).compactMap(\.string)
+        let server = args["name"]?.string ?? "?"
+        return PendingAction(tool: name, summary: "Start the MCP server \"\(server)\"",
+                             detail: ([command] + arguments).joined(separator: " "), dangerous: false)
     }
 }

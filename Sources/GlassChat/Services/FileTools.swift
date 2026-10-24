@@ -5,6 +5,7 @@ enum FileTools {
     static let defaultLimit = 2000
     static let maxLineLength = 2000
     static let maxEntries = 1000
+    static let maxReadBytes = 50_000_000
 
     /// `~` is the home folder; a relative path starts at the chat's working folder.
     static func resolvePath(_ path: String, cwd: URL) -> URL {
@@ -24,6 +25,14 @@ enum FileTools {
             throw MCPError(message: "\(url.path) does not exist.")
         }
         if isDirectory.boolValue { return try list(url) }
+        // Devices (/dev/zero), pipes and sockets never end: only regular files are read.
+        let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
+        guard attributes[.type] as? FileAttributeType == .typeRegular else {
+            throw MCPError(message: "\(url.path) is not a regular file.")
+        }
+        if let size = attributes[.size] as? Int, size > maxReadBytes {
+            throw MCPError(message: "\(url.path) is \(size / 1_000_000) MB; read parts of it with app_bash (head, tail, grep).")
+        }
         let data = try Data(contentsOf: url)
         if data.prefix(8192).contains(0) { throw MCPError(message: "\(url.path) is a binary file.") }
         let text = String(decoding: data, as: UTF8.self)

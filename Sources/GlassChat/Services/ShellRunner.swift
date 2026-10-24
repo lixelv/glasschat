@@ -18,8 +18,15 @@ actor ShellRunner {
     private var folders: [Chat.ID: URL] = [:]
 
     /// The chat's working folder (the home folder at first).
+    /// The chat's working folder; the home folder at first, or when the folder is gone (removed, ejected).
     func workingDirectory(for chat: Chat.ID) -> URL {
-        folders[chat] ?? FileManager.default.homeDirectoryForCurrentUser
+        var isDirectory: ObjCBool = false
+        guard let folder = folders[chat], FileManager.default.fileExists(atPath: folder.path, isDirectory: &isDirectory),
+              isDirectory.boolValue else {
+            folders[chat] = nil
+            return FileManager.default.homeDirectoryForCurrentUser
+        }
+        return folder
     }
 
     func run(_ command: String, in chat: Chat.ID, timeout: TimeInterval) async -> Result {
@@ -39,58 +46,81 @@ actor ShellRunner {
         return Result(output: output, exitCode: raw.status, timedOut: raw.timedOut)
     }
 
-    /// Runs the script; stops it (and the programs it started) after `timeout` or when the caller is cancelled.
+    /// Runs the script in a process group of its own; stops the whole group (the programs the command started
+    /// too) after `timeout` or when the caller is cancelled.
     private static func execute(_ script: String, in folder: URL, timeout: TimeInterval)
         async -> (output: String, status: Int32, timedOut: Bool, truncated: Bool) {
-        let process = Process()
-        process.executableURL = URL(filePath: "/bin/zsh")
-        process.arguments = ["-l", "-c", script]
-        process.currentDirectoryURL = folder
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        process.standardInput = FileHandle.nullDevice
+        var pipe: [Int32] = [0, 0]
+        guard Darwin.pipe(&pipe) == 0 else { return ("Could not open a pipe.", -1, false, false) }
+        var actions: posix_spawn_file_actions_t?
+        posix_spawn_file_actions_init(&actions)
+        defer { posix_spawn_file_actions_destroy(&actions) }
+        posix_spawn_file_actions_addopen(&actions, 0, "/dev/null", O_RDONLY, 0)
+        posix_spawn_file_actions_adddup2(&actions, pipe[1], 1)
+        posix_spawn_file_actions_adddup2(&actions, pipe[1], 2)
+        posix_spawn_file_actions_addclose(&actions, pipe[0])
+        posix_spawn_file_actions_addclose(&actions, pipe[1])
+        posix_spawn_file_actions_addchdir_np(&actions, folder.path)
+        var attributes: posix_spawnattr_t?
+        posix_spawnattr_init(&attributes)
+        defer { posix_spawnattr_destroy(&attributes) }
+        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP))
+        posix_spawnattr_setpgroup(&attributes, 0)
+
+        let arguments = ["/bin/zsh", "-l", "-c", script]
+        var argv: [UnsafeMutablePointer<CChar>?] = arguments.map { strdup($0) } + [nil]
+        defer { argv.forEach { free($0) } }
+        var pid: pid_t = 0
+        let spawned = posix_spawn(&pid, "/bin/zsh", &actions, &attributes, &argv, environ)
+        close(pipe[1])
+        guard spawned == 0 else {
+            close(pipe[0])
+            return ("Could not start zsh: \(String(cString: strerror(spawned)))", -1, false, false)
+        }
+
+        let group = pid
         let collected = Collected()
-        pipe.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            if !data.isEmpty { collected.append(data) }
+        let reader = FileHandle(fileDescriptor: pipe[0], closeOnDealloc: true)
+        // Read until the end of the output: when the whole group is gone, the pipe closes.
+        let reading = Task.detached {
+            while true {
+                let data = reader.availableData
+                if data.isEmpty { break }
+                collected.append(data)
+            }
         }
         let once = ResumeOnce<Int32>()
-        process.terminationHandler = { once.resume($0.terminationStatus) }
-        do { try process.run() } catch {
-            pipe.fileHandleForReading.readabilityHandler = nil
-            return ("Could not start zsh: \(error.localizedDescription)", -1, false, false)
+        Thread.detachNewThread {
+            var status: Int32 = 0
+            while waitpid(group, &status, 0) == -1 && errno == EINTR {}
+            // WIFEXITED / WEXITSTATUS; a signal gives -1.
+            once.resume((status & 0x7f) == 0 ? (status >> 8) & 0xff : -1)
         }
-        let pid = process.processIdentifier
         let timer = Task {
             try? await Task.sleep(for: .seconds(timeout))
             guard !Task.isCancelled else { return }
-            collected.timedOut = true
-            stop(pid, once)
+            collected.markTimedOut()
+            stop(group: group)
         }
         let status = await withTaskCancellationHandler {
             await withCheckedContinuation { once.set($0) }
         } onCancel: {
-            stop(pid, once)
+            stop(group: group)
         }
         timer.cancel()
-        // What is still in the pipe.
-        try? await Task.sleep(for: .milliseconds(50))
-        pipe.fileHandleForReading.readabilityHandler = nil
+        // Whatever is left: the rest of the group, then what is in the pipe.
+        stop(group: group, gently: false)
+        await reading.value
         return (collected.text, status, collected.timedOut, collected.truncated)
     }
 
-    /// SIGTERM to the shell and its children, SIGKILL two seconds later.
-    private static func stop(_ pid: pid_t, _ once: ResumeOnce<Int32>) {
-        let children = Process()
-        children.executableURL = URL(filePath: "/usr/bin/pkill")
-        children.arguments = ["-TERM", "-P", "\(pid)"]
-        try? children.run()
-        kill(pid, SIGTERM)
-        Task {
+    /// SIGTERM to the whole group, SIGKILL two seconds later (at once when `gently` is false).
+    private static func stop(group: pid_t, gently: Bool = true) {
+        guard gently else { kill(-group, SIGKILL); return }
+        kill(-group, SIGTERM)
+        Task.detached {
             try? await Task.sleep(for: .seconds(2))
-            kill(pid, SIGKILL)
-            once.resume(-1)
+            kill(-group, SIGKILL)
         }
     }
 
@@ -99,7 +129,13 @@ actor ShellRunner {
         private let lock = NSLock()
         private var data = Data()
         private(set) var truncated = false
-        var timedOut = false
+        private(set) var timedOut = false
+
+        func markTimedOut() {
+            lock.lock()
+            timedOut = true
+            lock.unlock()
+        }
 
         func append(_ chunk: Data) {
             lock.lock()

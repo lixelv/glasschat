@@ -1,5 +1,6 @@
 @preconcurrency import AVFoundation
 import Speech
+@preconcurrency import WhisperKit
 
 /// How the assistant turns speech into text.
 enum RecognitionMode: String, CaseIterable, Codable, Sendable {
@@ -63,7 +64,9 @@ enum Transcription {
         }
         return FinalTranscription(fallback: apple) { recording in
             let kit = try await VoiceModels.shared.transcriber()
-            let results = try await kit.transcribe(audioPath: recording.url.path)
+            // Without this WhisperKit prefills English and never detects the language.
+            let options = DecodingOptions(usePrefillPrompt: false, detectLanguage: true)
+            let results = try await kit.transcribe(audioPath: recording.url.path, decodeOptions: options)
             // Whisper marks silence and noise as "[BLANK_AUDIO]" or "(music)": not words.
             return results.map(\.text).joined(separator: " ")
                 .replacingOccurrences(of: #"\[[^\]]*\]|\([^)]*\)"#, with: "", options: .regularExpression)

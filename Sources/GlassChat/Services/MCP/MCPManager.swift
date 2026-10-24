@@ -334,7 +334,7 @@ final class MCPManager {
         for server in servers where server.enabled && status[server.id] == .connected {
             let prefix = Self.slug(server.name, limit: 20)
             for tool in tools[server.id] ?? [] {
-                var name = prefix + "__" + Self.slug(tool.name, limit: 60 - prefix.count)
+                var name = prefix + "__" + Self.toolSlug(tool.name, limit: 60 - prefix.count)
                 var n = 2
                 while result[name] != nil { name = String(name.prefix(60)) + "\(n)"; n += 1 }
                 let description = tool.description.isEmpty ? "\(tool.name) (\(server.name))" : tool.description
@@ -407,6 +407,17 @@ final class MCPManager {
     }
 
     /// Letters, digits, `_` and `-` only: what function names may hold.
+    /// A tool's name as a function name; a leading "_" (a hidden tool) is kept.
+    static func toolSlug(_ name: String, limit: Int) -> String {
+        guard name.hasPrefix("_") else { return slug(name, limit: limit) }
+        return "_" + slug(String(name.drop { $0 == "_" }), limit: limit - 1)
+    }
+
+    /// The registry entry of a server, by name.
+    func entry(_ name: String) -> JSONValue? {
+        config[name]
+    }
+
     static func slug(_ text: String, limit: Int) -> String {
         let allowed = text.unicodeScalars.map { (CharacterSet.alphanumerics.contains($0) && $0.isASCII) || $0 == "_" || $0 == "-" ? Character($0) : "_" }
         let slug = String(allowed).trimmingCharacters(in: CharacterSet(charactersIn: "_"))

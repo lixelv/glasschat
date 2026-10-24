@@ -43,6 +43,17 @@ final class VoiceModels {
 
     var isComplete: Bool { whisper == .ready && speech == .ready }
 
+    /// A progress report that arrives after the download ended does not undo its end.
+    nonisolated static func progressed(_ state: State, _ fraction: Double) -> State {
+        if case .downloading = state { return .downloading(fraction) }
+        return state
+    }
+
+    /// Starts the downloads on their own, not tied to a view (closing the onboarding does not cancel them).
+    func startDownloads() {
+        Task { await downloadAll() }
+    }
+
     /// Where the downloaded Whisper model is, remembered after its download.
     private var whisperFolder: URL? {
         guard let path = try? String(contentsOf: Self.whisperMarker, encoding: .utf8) else { return nil }
@@ -78,7 +89,7 @@ final class VoiceModels {
     private nonisolated static func whisperProgress() -> @Sendable (Progress) -> Void {
         { progress in
             let fraction = progress.fractionCompleted
-            Task { @MainActor in VoiceModels.shared.whisper = .downloading(fraction) }
+            Task { @MainActor in VoiceModels.shared.whisper = VoiceModels.progressed(VoiceModels.shared.whisper, fraction) }
         }
     }
 
@@ -88,7 +99,7 @@ final class VoiceModels {
         do {
             _ = try await ModelAssets.download(to: Self.supertonicFolder) { progress in
                 let fraction = progress.totalBytes > 0 ? Double(progress.downloadedBytes) / Double(progress.totalBytes) : 0
-                Task { @MainActor in VoiceModels.shared.speech = .downloading(fraction) }
+                Task { @MainActor in VoiceModels.shared.speech = VoiceModels.progressed(VoiceModels.shared.speech, fraction) }
             }
             speech = .ready
         } catch {

@@ -218,6 +218,10 @@ enum AppTool: String, CaseIterable, Sendable {
 
         case .enableMCP, .disableMCP:
             guard let name = text("name") else { throw MCPError(message: "A \"name\" is needed.") }
+            if self == .enableMCP,
+               let action = RegistryGate.action(for: rawValue, args: args, existing: MCPManager.shared.entry(name)) {
+                try await ActionGate.check(action, callID: callID, chat: chatID)
+            }
             try MCPManager.shared.setEnabled(name, self == .enableMCP)
             return "\"\(name)\" is \(self == .enableMCP ? "enabled; it connects and its tools are offered from the next message" : "disabled")."
 
@@ -229,33 +233,34 @@ enum AppTool: String, CaseIterable, Sendable {
             guard let raw = args["path"]?.string, !raw.isEmpty else { throw MCPError(message: "A \"path\" is needed.") }
             let url = FileTools.resolvePath(raw, cwd: await ShellRunner.shared.workingDirectory(for: chatID))
             if self == .write {
-                try await ActionGate.check(PendingAction(tool: self, summary: "Write \(url.path)",
-                                                         detail: String((args["content"]?.string ?? "").prefix(1500)), dangerous: false),
+                try await ActionGate.check(PendingAction(tool: rawValue, summary: "Write \(url.path)",
+                                                         detail: args["content"]?.string ?? "", dangerous: false),
                                            callID: callID, chat: chatID)
             } else if self == .edit {
-                let detail = "- \((args["old_string"]?.string ?? "").prefix(700))\n+ \((args["new_string"]?.string ?? "").prefix(700))"
-                try await ActionGate.check(PendingAction(tool: self, summary: "Edit \(url.path)", detail: detail, dangerous: false),
+                let detail = "- \(args["old_string"]?.string ?? "")\n+ \(args["new_string"]?.string ?? "")"
+                try await ActionGate.check(PendingAction(tool: rawValue, summary: "Edit \(url.path)", detail: detail, dangerous: false),
                                            callID: callID, chat: chatID)
             }
             switch self {
             case .read:
-                return try FileTools.read(url, offset: args["offset"]?.int, limit: args["limit"]?.int)
+                let offset = args["offset"]?.int, limit = args["limit"]?.int
+                return try await Task.detached { try FileTools.read(url, offset: offset, limit: limit) }.value
             case .write:
                 guard let content = args["content"]?.string else { throw MCPError(message: "A \"content\" is needed.") }
-                return try FileTools.write(url, content: content)
+                return try await Task.detached { try FileTools.write(url, content: content) }.value
             default:
                 guard let old = args["old_string"]?.string, let new = args["new_string"]?.string else {
                     throw MCPError(message: "\"old_string\" and \"new_string\" are needed.")
                 }
                 let all: Bool = { if case .bool(true)? = args["replace_all"] { return true }; return false }()
-                return try FileTools.edit(url, old: old, new: new, replaceAll: all)
+                return try await Task.detached { try FileTools.edit(url, old: old, new: new, replaceAll: all) }.value
             }
 
         case .bash:
             guard let command = text("command") else { throw MCPError(message: "A \"command\" is needed.") }
             let timeout = min(max(args["timeout"]?.double ?? ShellRunner.defaultTimeout, 1), ShellRunner.maxTimeout)
             let folder = await ShellRunner.shared.workingDirectory(for: chatID).path
-            try await ActionGate.check(PendingAction(tool: self, summary: "Run a command in \(folder)", detail: command, dangerous: false),
+            try await ActionGate.check(PendingAction(tool: rawValue, summary: "Run a command in \(folder)", detail: command, dangerous: false),
                                        callID: callID, chat: chatID)
             let result = await ShellRunner.shared.run(command, in: chatID, timeout: timeout)
             var reply = result.output.isEmpty ? "(no output)" : result.output

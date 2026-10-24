@@ -20,13 +20,20 @@ struct ActionApprovalCard: View {
                     .foregroundStyle(tint)
                 Text(action.summary)
                     .font(.callout)
-                Text(action.detail.isEmpty ? "—" : action.detail)
-                    .font(.system(.callout, design: .monospaced))
-                    .lineLimit(12)
-                    .textSelection(.enabled)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(8)
-                    .background(Color.secondary.opacity(0.1), in: .rect(cornerRadius: 8))
+                // All of it, scrolling: a cut could hide the dangerous part.
+                ScrollView {
+                    Text(action.detail.isEmpty ? "—" : action.detail)
+                        .font(.system(.callout, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(8)
+                }
+                .frame(minHeight: 36, maxHeight: 220)
+                .background(Color.secondary.opacity(0.1), in: .rect(cornerRadius: 8))
+                let lines = action.detail.components(separatedBy: "\n").count
+                if lines > 12 {
+                    Text("\(lines) lines: scroll to read all of it.").font(.caption).foregroundStyle(.secondary)
+                }
                 HStack {
                     Button("Deny") { center.answer(.deny, in: chatID) }
                         .keyboardShortcut(.cancelAction)
