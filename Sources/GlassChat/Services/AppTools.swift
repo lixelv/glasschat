@@ -18,6 +18,9 @@ enum AppTool: String, CaseIterable, Sendable {
     case disableMCP = "_app_disable_mcp"
     case say = "app_say"
     case askUser = "app_ask_user"
+    case read = "app_read"
+    case write = "app_write"
+    case edit = "app_edit"
 
     /// The key a chat switches these tools off with.
     static let key = "__app__"
@@ -36,6 +39,9 @@ enum AppTool: String, CaseIterable, Sendable {
         case .listMCP: "List the MCP servers: name, enabled, state, number of tools."
         case .enableMCP: "Enable an MCP server by name (it connects)."
         case .disableMCP: "Disable an MCP server by name (it disconnects)."
+        case .read: "Read a file on this Mac as numbered lines (up to 2000; use offset and limit for more), or list a folder (folders end with /). Paths: absolute, ~/…, or relative to the chat's working folder (see app_bash)."
+        case .write: "Create or replace a file with the given content (missing folders are created). Read a file before replacing it."
+        case .edit: "Replace an exact piece of text in a file. old_string must occur once, unless replace_all is true; include enough surrounding text to make it unique."
         case .askUser: "Ask the user one to four questions with suggested answers and wait for their choice. They pick an option, type their own answer, or skip. Use it instead of asking in text when there are clear options."
         case .say: "Say a text aloud to the user (the macOS voice, or the TTS model from Settings). Returns when it has been spoken."
         }
@@ -60,6 +66,16 @@ enum AppTool: String, CaseIterable, Sendable {
         case .setModel: return object(["model": string("Model id"), "chat_id": chatID], ["model"])
         case .enableMCP, .disableMCP: return object(["name": string("The server's name from _app_list_mcp")], ["name"])
         case .say: return object(["text": string("What to say, as plain words (no Markdown)")], ["text"])
+        case .read:
+            return object(["path": string("The file or folder"),
+                           "offset": .object(["type": .string("integer"), "description": .string("The first line to read, from 1")]),
+                           "limit": .object(["type": .string("integer"), "description": .string("How many lines (default 2000)")])], ["path"])
+        case .write: return object(["path": string("The file"), "content": string("The whole new content")], ["path", "content"])
+        case .edit:
+            return object(["path": string("The file"), "old_string": string("The exact text to replace"),
+                           "new_string": string("The text to put instead"),
+                           "replace_all": .object(["type": .string("boolean"), "description": .string("Replace every occurrence")])],
+                          ["path", "old_string", "new_string"])
         case .askUser:
             let option = object(["label": string("The answer as shown on its button"), "description": string("A short explanation (optional)")], ["label"])
             let question = object([
@@ -202,6 +218,23 @@ enum AppTool: String, CaseIterable, Sendable {
         case .say:
             guard let words = text("text") else { throw MCPError(message: "A \"text\" is needed.") }
             return try await Speaker.shared.speak(words) ? "Spoken." : "Stopped by the user."
+
+        case .read, .write, .edit:
+            guard let raw = args["path"]?.string, !raw.isEmpty else { throw MCPError(message: "A \"path\" is needed.") }
+            let url = FileTools.resolvePath(raw, cwd: await ShellRunner.shared.workingDirectory(for: chatID))
+            switch self {
+            case .read:
+                return try FileTools.read(url, offset: args["offset"]?.int, limit: args["limit"]?.int)
+            case .write:
+                guard let content = args["content"]?.string else { throw MCPError(message: "A \"content\" is needed.") }
+                return try FileTools.write(url, content: content)
+            default:
+                guard let old = args["old_string"]?.string, let new = args["new_string"]?.string else {
+                    throw MCPError(message: "\"old_string\" and \"new_string\" are needed.")
+                }
+                let all: Bool = { if case .bool(true)? = args["replace_all"] { return true }; return false }()
+                return try FileTools.edit(url, old: old, new: new, replaceAll: all)
+            }
 
         case .askUser:
             let questions = try AskUser.parse(args)
