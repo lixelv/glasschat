@@ -131,7 +131,7 @@ final class NotchPanelController {
         return event
     }
 
-    private func collapse() {
+    func collapse() {
         model.collapse()
         panel?.resignKey()
         track()

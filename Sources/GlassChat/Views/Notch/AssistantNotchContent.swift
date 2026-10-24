@@ -66,10 +66,15 @@ struct AssistantNotchContent: View {
                 let speaking = Speaker.shared.isSpeaking
                 button(speaking ? "Stop Speaking" : "Speak", speaking ? "stop.fill" : "speaker.wave.2") { assistant.speakLastAnswer() }
                     .disabled(answer == nil && !speaking)
-                button("Stop", "stop.circle") { assistant.stopAll() }
-                    .disabled(!assistant.isBusy)
+                button("Stop", "stop.circle") {
+                    assistant.stopAll()
+                    NotchPanelController.shared.collapse()
+                }
                 Spacer()
-                button("Open in Window", "arrow.up.forward.app") { MainWindow.show(id) }
+                button("Open in Window", "arrow.up.forward.app") {
+                    NotchPanelController.shared.collapse()
+                    MainWindow.show(id)
+                }
                 button("New Conversation", "plus.bubble") { assistant.newConversation() }
             }
             .padding(.horizontal, 16)

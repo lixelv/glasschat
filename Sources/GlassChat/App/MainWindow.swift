@@ -10,9 +10,13 @@ enum MainWindow {
     static var pendingChat: Chat.ID?
 
     static func show(_ chat: Chat.ID) {
-        NSApp.activate()
-        let visible = NSApp.windows.contains { $0.isVisible && $0.canBecomeMain && !($0 is NSPanel) }
-        if visible {
+        // The notch never activates the app; plain `activate()` is only a request another active app may turn down.
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
+        let windows = NSApp.windows.filter { $0.canBecomeMain && !($0 is NSPanel) }
+        if let window = windows.first(where: \.isVisible) ?? windows.first(where: \.isMiniaturized) {
+            if window.isMiniaturized { window.deminiaturize(nil) }
+            window.makeKeyAndOrderFront(nil)
+            window.orderFrontRegardless()
             NotificationCenter.default.post(name: .selectChat, object: chat)
         } else {
             pendingChat = chat
