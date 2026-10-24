@@ -62,6 +62,7 @@ final class NotchPanelController {
         }) { monitors.append(local) }
         if let global = NSEvent.addGlobalMonitorForEvents(matching: .leftMouseDown, handler: { event in
             let point = Self.screenPoint(of: event)
+            voiceLog.debug("global click \(Self.describe(event), privacy: .public)")
             Task { @MainActor in NotchPanelController.shared.clicked(at: point) }
         }) { monitors.append(global) }
         if let local = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .keyDown], handler: { event in
@@ -85,6 +86,7 @@ final class NotchPanelController {
 
     /// The shortcut: open and listen, or fold.
     func toggle() {
+        voiceLog.debug("shortcut pressed")
         guard panel != nil else { return }
         if model.isExpanded { collapse() } else { expand() }
     }
@@ -111,6 +113,11 @@ final class NotchPanelController {
         let width = size.width + 12
         return CGRect(x: panel.frame.midX - width / 2, y: panel.frame.maxY - size.height, width: width, height: size.height)
             .insetBy(dx: -4, dy: -4)
+    }
+
+    private nonisolated static func describe(_ event: NSEvent) -> String {
+        let age = ProcessInfo.processInfo.systemUptime - event.timestamp
+        return "window \(event.window.map { String(describing: type(of: $0)) } ?? "none") number \(event.eventNumber) clicks \(event.clickCount) age \(String(format: "%.2f", age))s"
     }
 
     /// An event's place on the screen (a global event has no window: its location is already on the screen).
@@ -146,6 +153,7 @@ final class NotchPanelController {
             collapse()
             return nil
         case .leftMouseDown where event.window !== panel:
+            voiceLog.debug("local click \(Self.describe(event), privacy: .public)")
             clicked(at: Self.screenPoint(of: event))
         case .leftMouseDown where !model.isExpanded && shapeFrame.contains(Self.screenPoint(of: event)):
             expand()

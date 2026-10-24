@@ -4,8 +4,8 @@ import Carbon.HIToolbox
 
 extension SelfTests {
     static func shortcut() {
-        expect(Shortcut.standard.display == "⌥ Space", "default is Option-Space")
-        expect(Shortcut.standard.keyCode == UInt32(kVK_Space) && Shortcut.standard.carbonModifiers == UInt32(optionKey), "default codes")
+        expect(Shortcut.standard.display == "⇧ Space", "default is Shift-Space")
+        expect(Shortcut.standard.keyCode == UInt32(kVK_Space) && Shortcut.standard.carbonModifiers == UInt32(shiftKey), "default codes")
         let all = Shortcut(keyCode: UInt32(kVK_ANSI_K), modifiers: [.command, .shift, .option, .control], key: "K")
         expect(all.display == "⌃ ⌥ ⇧ ⌘ K", "modifiers in Apple's order")
         expect(all.carbonModifiers == UInt32(cmdKey | shiftKey | optionKey | controlKey), "carbon modifiers")
