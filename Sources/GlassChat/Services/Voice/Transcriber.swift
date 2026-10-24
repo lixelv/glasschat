@@ -1,7 +1,39 @@
 @preconcurrency import AVFoundation
 import Speech
 
-/// Turns one recorded phrase into text: live while it is spoken (Apple) or after it (the API).
+/// How the assistant turns speech into the message it sends.
+enum RecognitionMode: String, CaseIterable, Codable, Sendable {
+    /// Apple's recognition on this Mac, in the languages of the system.
+    case builtIn
+    /// The transcription model of a provider (`/audio/transcriptions`).
+    case provider
+    /// Whisper on this Mac (whisper.cpp from Homebrew).
+    case localWhisper
+    /// No transcription: the recording goes to the chat model as audio.
+    case audioToModel
+
+    static let `default` = RecognitionMode.builtIn
+
+    var title: String {
+        switch self {
+        case .builtIn: "Built-in (Apple)"
+        case .provider: "Provider's Model"
+        case .localWhisper: "Whisper on This Mac"
+        case .audioToModel: "Audio to the Model"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .builtIn: "On this Mac, free, offline. Listens in the languages of System Settings and keeps the surest."
+        case .provider: "A transcription model of any provider, e.g. openai/whisper-large-v3-turbo. Any language."
+        case .localWhisper: "Whisper large-v3-turbo with whisper.cpp from Homebrew (about 550 MB). Offline, any language."
+        case .audioToModel: "The recording goes to the chat model as audio (models that hear, e.g. gpt-4o-audio, Gemini). The words shown are Apple's guess."
+        }
+    }
+}
+
+/// Turns one recorded phrase into text: live while it is spoken (Apple) and finally after it.
 @MainActor
 protocol TranscriptionSession: AnyObject, Sendable {
     /// Every microphone buffer, on the audio thread.
@@ -11,56 +43,127 @@ protocol TranscriptionSession: AnyObject, Sendable {
 }
 
 enum Transcription {
-    /// A transcription model in Settings goes to `/audio/transcriptions`; else Apple recognition on this Mac.
+    /// Apple always shows the words while they are spoken; with a provider's model or local Whisper that one writes
+    /// the final text, and Apple's stands in when it fails.
     @MainActor
     static func start(inputFormat: AVAudioFormat, onPartial: @escaping @MainActor (String) -> Void,
                       onProgress: @escaping @MainActor (Double?) -> Void) async throws -> any TranscriptionSession {
-        // Apple always shows the words while they are spoken; a transcription model, when set, writes the final text,
-        // and Apple's stands in when the model fails.
+        let mode = AppSettings.shared.recognitionMode
         let apple: AppleTranscription?
         do {
-            apple = try await AppleTranscription.start(locale: language, onPartial: onPartial, onProgress: onProgress)
+            apple = try await AppleTranscription.start(locales: await languages(), onPartial: onPartial, onProgress: onProgress)
         } catch {
-            guard AppSettings.shared.endpoint(.transcription) != nil else { throw error }
+            guard mode != .builtIn else { throw error }
             apple = nil
         }
-        guard AppSettings.shared.endpoint(.transcription) != nil else { return apple! }
-        return APITranscription(fallback: apple)
+        switch mode {
+        case .builtIn:
+            return apple!
+        case .provider:
+            return FinalTranscription(fallback: apple) { recording in
+                guard let endpoint = AppSettings.shared.endpoint(.transcription) else {
+                    throw APIError(status: nil, message: "Choose the transcription model in Settings → Assistant.", url: nil)
+                }
+                let wav = try Data(contentsOf: recording.url)
+                let language = AppSettings.shared.transcriptionLanguage.isEmpty
+                    ? nil : Locale(identifier: AppSettings.shared.transcriptionLanguage).language.languageCode?.identifier
+                return try await OpenAIClient(baseURL: endpoint.url, token: endpoint.token)
+                    .transcribe(wav: wav, model: endpoint.model, language: language)
+            }
+        case .localWhisper:
+            return FinalTranscription(fallback: apple) { recording in
+                try await LocalWhisper.shared.transcribe(recording.url)
+            }
+        case .audioToModel:
+            // The text is only shown; the recording itself is sent.
+            return FinalTranscription(fallback: apple) { _ in "" }
+        }
     }
 
-    /// The language of Settings, or the system's.
+    /// The language chosen in Settings, or every language of the system (at most three) that Apple knows.
     @MainActor
-    static var language: Locale {
-        let id = AppSettings.shared.transcriptionLanguage
-        return id.isEmpty ? Locale.current : Locale(identifier: id)
+    static func languages() async -> [Locale] {
+        let chosen = AppSettings.shared.transcriptionLanguage
+        let wanted = chosen.isEmpty ? Locale.preferredLanguages.map(Locale.init(identifier:)) : [Locale(identifier: chosen)]
+        var result: [Locale] = []
+        for locale in wanted where result.count < 3 {
+            let code = locale.language.languageCode
+            guard !result.contains(where: { $0.language.languageCode == code }) else { continue }
+            let speech = await SpeechTranscriber.supportedLocale(equivalentTo: locale)
+            let dictation = await DictationTranscriber.supportedLocale(equivalentTo: locale)
+            if speech != nil || dictation != nil {
+                result.append(locale)
+            }
+        }
+        return result.isEmpty ? [Locale.current] : result
     }
 }
 
-/// `SpeechAnalyzer` on this Mac: `SpeechTranscriber` where it knows the language, else `DictationTranscriber`
-/// (which knows more of them, Russian among them).
-@MainActor
-final class AppleTranscription: TranscriptionSession {
-    private let analyzer: SpeechAnalyzer
-    private let feeder: Feeder
-    private let results: Task<String, Error>
-
-    private init(analyzer: SpeechAnalyzer, feeder: Feeder, results: Task<String, Error>) {
-        self.analyzer = analyzer
-        self.feeder = feeder
-        self.results = results
+/// One language's recognition, and how sure it was.
+struct RecognitionLane {
+    struct Score: Sendable {
+        var text: String
+        /// The sum of the confidences of its characters.
+        var confidence: Double
+        var characters: Int
     }
 
-    static func start(locale: Locale, onPartial: @escaping @MainActor (String) -> Void,
+    /// The surest text (the longest when no confidences were given); nil when nothing was heard.
+    static func best(_ scores: [Score]) -> Score? {
+        scores.filter { !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+            .max { a, b in
+                let ma = a.characters > 0 ? a.confidence / Double(a.characters) : 0
+                let mb = b.characters > 0 ? b.confidence / Double(b.characters) : 0
+                return ma == mb ? a.characters < b.characters : ma < mb
+            }
+    }
+}
+
+/// `SpeechAnalyzer` on this Mac, one per language (Apple does not tell languages apart by itself):
+/// `SpeechTranscriber` where it knows the language, else `DictationTranscriber` (Russian among its languages).
+@MainActor
+final class AppleTranscription: TranscriptionSession {
+    private let lanes: [Lane]
+
+    private struct Lane {
+        let analyzer: SpeechAnalyzer
+        let feeder: Feeder
+        let results: Task<RecognitionLane.Score, Error>
+    }
+
+    private init(lanes: [Lane]) {
+        self.lanes = lanes
+    }
+
+    static func start(locales: [Locale], onPartial: @escaping @MainActor (String) -> Void,
                       onProgress: @escaping @MainActor (Double?) -> Void) async throws -> AppleTranscription {
+        let live = LiveScores(count: locales.count, onPartial: onPartial)
+        var lanes: [Lane] = []
+        var lastError: Error?
+        for (index, locale) in locales.enumerated() {
+            do {
+                lanes.append(try await lane(locale, index: index, live: live, onProgress: onProgress))
+            } catch {
+                lastError = error
+            }
+        }
+        guard !lanes.isEmpty else { throw lastError ?? VoiceError.languageUnsupported(locales.first?.identifier ?? "") }
+        return AppleTranscription(lanes: lanes)
+    }
+
+    private static func lane(_ locale: Locale, index: Int, live: LiveScores,
+                             onProgress: @escaping @MainActor (Double?) -> Void) async throws -> Lane {
         let module: any SpeechModule
         let speech: SpeechTranscriber?
         let dictation: DictationTranscriber?
         if let supported = await SpeechTranscriber.supportedLocale(equivalentTo: locale) {
-            speech = SpeechTranscriber(locale: supported, preset: .progressiveTranscription)
+            speech = SpeechTranscriber(locale: supported, transcriptionOptions: [], reportingOptions: [.volatileResults],
+                                       attributeOptions: [.transcriptionConfidence])
             dictation = nil
             module = speech!
         } else if let supported = await DictationTranscriber.supportedLocale(equivalentTo: locale) {
-            dictation = DictationTranscriber(locale: supported, preset: .progressiveShortDictation)
+            dictation = DictationTranscriber(locale: supported, contentHints: [], transcriptionOptions: [.punctuation],
+                                             reportingOptions: [.volatileResults], attributeOptions: [.transcriptionConfidence])
             speech = nil
             module = dictation!
         } else {
@@ -82,22 +185,30 @@ final class AppleTranscription: TranscriptionSession {
         }
 
         guard let format = await SpeechAnalyzer.bestAvailableAudioFormat(compatibleWith: modules) else {
-            throw VoiceError.engine("Apple recognition has no audio format for this language.")
+            throw VoiceError.engine("Apple recognition has no audio format for \(locale.identifier).")
         }
         let (stream, continuation) = AsyncStream.makeStream(of: AnalyzerInput.self)
         let feeder = Feeder(format: format, continuation: continuation)
 
         // Finished pieces add up; the volatile one is replaced as it is revised.
-        let results = Task { @MainActor () throws -> String in
-            var final = ""
-            @MainActor func show(_ text: AttributedString, _ isFinal: Bool) {
-                let piece = String(text.characters)
-                if isFinal { final += piece; onPartial(final) } else { onPartial(final + piece) }
+        let results = Task { @MainActor () throws -> RecognitionLane.Score in
+            var final = RecognitionLane.Score(text: "", confidence: 0, characters: 0)
+            @MainActor func take(_ text: AttributedString, _ isFinal: Bool) {
+                var piece = RecognitionLane.Score(text: String(text.characters), confidence: 0, characters: 0)
+                for run in text.runs {
+                    let count = text[run.range].characters.count
+                    piece.characters += count
+                    piece.confidence += (run[AttributeScopes.SpeechAttributes.ConfidenceAttribute.self] ?? 0) * Double(count)
+                }
+                let shown = RecognitionLane.Score(text: final.text + piece.text, confidence: final.confidence + piece.confidence,
+                                                  characters: final.characters + piece.characters)
+                if isFinal { final = shown }
+                live.update(index, shown)
             }
             if let speech {
-                for try await result in speech.results { show(result.text, result.isFinal) }
+                for try await result in speech.results { take(result.text, result.isFinal) }
             } else if let dictation {
-                for try await result in dictation.results { show(result.text, result.isFinal) }
+                for try await result in dictation.results { take(result.text, result.isFinal) }
             }
             return final
         }
@@ -108,24 +219,47 @@ final class AppleTranscription: TranscriptionSession {
             results.cancel()
             throw VoiceError.engine(error.localizedDescription)
         }
-        return AppleTranscription(analyzer: analyzer, feeder: feeder, results: results)
+        return Lane(analyzer: analyzer, feeder: feeder, results: results)
     }
 
     nonisolated func append(_ buffer: AVAudioPCMBuffer) {
-        feeder.append(buffer)
+        for lane in lanes { lane.feeder.append(buffer) }
     }
 
     func finish(_ recording: Recording) async throws -> String {
-        feeder.finish()
-        try await analyzer.finalizeAndFinishThroughEndOfInput()
-        return try await results.value.trimmingCharacters(in: .whitespacesAndNewlines)
+        var scores: [RecognitionLane.Score] = []
+        for lane in lanes {
+            lane.feeder.finish()
+            try? await lane.analyzer.finalizeAndFinishThroughEndOfInput()
+            if let score = try? await lane.results.value { scores.append(score) }
+        }
+        return RecognitionLane.best(scores)?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
     func cancel() {
-        feeder.finish()
-        results.cancel()
-        let analyzer = analyzer
-        Task { await analyzer.cancelAndFinishNow() }
+        for lane in lanes {
+            lane.feeder.finish()
+            lane.results.cancel()
+            let analyzer = lane.analyzer
+            Task { await analyzer.cancelAndFinishNow() }
+        }
+    }
+
+    /// The live text of every language; the surest one is shown.
+    @MainActor
+    private final class LiveScores {
+        private var scores: [RecognitionLane.Score]
+        private let onPartial: @MainActor (String) -> Void
+
+        init(count: Int, onPartial: @escaping @MainActor (String) -> Void) {
+            scores = Array(repeating: RecognitionLane.Score(text: "", confidence: 0, characters: 0), count: count)
+            self.onPartial = onPartial
+        }
+
+        func update(_ index: Int, _ score: RecognitionLane.Score) {
+            scores[index] = score
+            if let best = RecognitionLane.best(scores) { onPartial(best.text) }
+        }
     }
 
     /// Converts the microphone buffers to the analyzer's format and hands them on; used on the audio thread.
@@ -175,14 +309,17 @@ final class AppleTranscription: TranscriptionSession {
     }
 }
 
-/// The transcription model of Settings, on the chat's server; the phrase is sent once it is over.
+/// The final text from somewhere else (a provider's model, local Whisper), with Apple's live text meanwhile;
+/// Apple's text stands in when it fails or hears nothing.
 @MainActor
-final class APITranscription: TranscriptionSession {
-    private var task: Task<String, Error>?
+final class FinalTranscription: TranscriptionSession {
     private let fallback: AppleTranscription?
+    private let transcribe: @MainActor (Recording) async throws -> String
+    private var task: Task<String, Error>?
 
-    init(fallback: AppleTranscription?) {
+    init(fallback: AppleTranscription?, transcribe: @escaping @MainActor (Recording) async throws -> String) {
         self.fallback = fallback
+        self.transcribe = transcribe
     }
 
     nonisolated func append(_ buffer: AVAudioPCMBuffer) {
@@ -191,27 +328,17 @@ final class APITranscription: TranscriptionSession {
 
     func finish(_ recording: Recording) async throws -> String {
         let apple = try? await fallback?.finish(recording)
+        let transcribe = transcribe
+        let task = Task { try await transcribe(recording) }
+        self.task = task
         do {
-            let text = try await transcribe(recording)
+            let text = try await task.value.trimmingCharacters(in: .whitespacesAndNewlines)
             return text.isEmpty ? apple ?? "" : text
         } catch {
-            guard let apple, !Task.isCancelled else { throw error }
-            voiceLog.error("transcription model failed, Apple's text used: \(error.localizedDescription, privacy: .public)")
+            guard let apple, !apple.isEmpty, !Task.isCancelled else { throw error }
+            voiceLog.error("transcription failed, Apple's text used: \(error.localizedDescription, privacy: .public)")
             return apple
         }
-    }
-
-    private func transcribe(_ recording: Recording) async throws -> String {
-        guard let endpoint = AppSettings.shared.endpoint(.transcription) else {
-            throw APIError(status: nil, message: "The transcription model's address is not valid (Settings → Assistant).", url: nil)
-        }
-        let wav = try Data(contentsOf: recording.url)
-        let client = OpenAIClient(baseURL: endpoint.url, token: endpoint.token)
-        let model = endpoint.model
-        let language = Transcription.language.language.languageCode?.identifier
-        let task = Task { try await client.transcribe(wav: wav, model: model, language: language) }
-        self.task = task
-        return try await task.value.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     func cancel() {

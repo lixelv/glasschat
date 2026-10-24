@@ -6,6 +6,8 @@ struct ModelConnectionEditor: View {
     let role: ModelRole
     var doneTitle = "Save"
     var showsCancel = true
+    /// Whether saving closes the sheet it is in (not in the onboarding, which goes on).
+    var closes = true
     let done: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -16,13 +18,16 @@ struct ModelConnectionEditor: View {
     @State private var loading = false
     @State private var loadError: String?
 
-    init(role: ModelRole, doneTitle: String = "Save", showsCancel: Bool = true, done: @escaping () -> Void = {}) {
+    init(role: ModelRole, doneTitle: String = "Save", showsCancel: Bool = true, closes: Bool = true, done: @escaping () -> Void = {}) {
         self.role = role
+        self.closes = closes
         self.doneTitle = doneTitle
         self.showsCancel = showsCancel
         self.done = done
         let settings = AppSettings.shared
-        _connection = State(initialValue: settings.connection(role))
+        var connection = settings.connection(role)
+        if connection.model.isEmpty, let suggested = role.suggestedModel { connection.model = suggested }
+        _connection = State(initialValue: connection)
         _token = State(initialValue: settings.token(role))
     }
 
@@ -146,7 +151,7 @@ struct ModelConnectionEditor: View {
             Task { await ModelStore.shared.refresh() }
         }
         done()
-        dismiss()
+        if closes { dismiss() }
     }
 }
 

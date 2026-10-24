@@ -53,9 +53,14 @@ enum ModelRole: String, CaseIterable, Sendable {
         switch self {
         case .chat: nil
         case .decision: "None (match words)"
-        case .transcription: "None (Apple recognition)"
+        case .transcription: nil
         case .speech: "None (macOS voice)"
         }
+    }
+
+    /// Filled in when the role has no model yet.
+    var suggestedModel: String? {
+        self == .transcription ? "openai/whisper-large-v3-turbo" : nil
     }
 
     var keychainAccount: String {

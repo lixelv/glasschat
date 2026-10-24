@@ -152,9 +152,14 @@ final class AssistantController {
         var followUp = false
         defer { if !questionListening { phase = .idle } }
         while !Task.isCancelled {
-            guard let text = await hear(followUp: followUp) else { return }
+            guard let heard = await hear(followUp: followUp) else { return }
             let id = chatID
-            ChatController.shared.send(text, in: id)
+            // With "Audio to the Model" the recording is the message; the words are only shown.
+            if let audio = heard.audio {
+                ChatController.shared.send("", attachments: [audio], in: id)
+            } else {
+                ChatController.shared.send(heard.text, in: id)
+            }
             guard ChatController.shared.isStreaming(id) else {
                 error = ChatController.shared.errors[id]?.localizedDescription
                 return
@@ -185,8 +190,8 @@ final class AssistantController {
                 questionListening = true
                 Task { [weak self] in
                     guard let self else { return }
-                    if let text = await self.hear(followUp: true), QuestionCenter.shared.pending[id] != nil {
-                        QuestionCenter.shared.answer(.one(text), in: id)
+                    if let heard = await self.hear(followUp: true), !heard.text.isEmpty, QuestionCenter.shared.pending[id] != nil {
+                        QuestionCenter.shared.answer(.one(heard.text), in: id)
                     }
                     self.questionListening = false
                     if ChatController.shared.isStreaming(id) { self.phase = .answering }
@@ -196,8 +201,14 @@ final class AssistantController {
         }
     }
 
-    /// One phrase as text; nil when nothing was said in time, it was cancelled or it failed (`error`).
-    private func hear(followUp: Bool) async -> String? {
+    /// What a phrase gave: its text, and the recording itself with "Audio to the Model".
+    private struct Heard {
+        let text: String
+        let audio: Attachment?
+    }
+
+    /// One phrase; nil when nothing was said in time, it was cancelled or it failed (`error`).
+    private func hear(followUp: Bool) async -> Heard? {
         let allowed = await VoiceRecorder.requestAccess()
         guard !Task.isCancelled else { return nil }
         guard allowed else {
@@ -234,10 +245,14 @@ final class AssistantController {
                 let text = try await session.finish(recording)
                 self.session = nil
                 voiceLog.debug("transcribed: \(text, privacy: .public)")
+                if settings.recognitionMode == .audioToModel {
+                    heard = text
+                    return Heard(text: text, audio: try AttachmentStore.importFile(at: recording.url))
+                }
                 // Nothing recognised: listen again in the same way.
                 guard !text.isEmpty else { continue }
                 heard = text
-                return text
+                return Heard(text: text, audio: nil)
             } catch {
                 voiceLog.error("hear failed: \(error.localizedDescription, privacy: .public)")
                 session?.cancel()

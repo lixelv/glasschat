@@ -2,6 +2,8 @@ import SwiftUI
 
 struct OnboardingView: View {
     @Environment(\.dismiss) private var dismiss
+    /// First the default model, then how speech is recognised.
+    @State private var step = 0
 
     var body: some View {
         VStack(spacing: 0) {
@@ -19,7 +21,28 @@ struct OnboardingView: View {
             }
             .padding(.top, 28)
 
-            ModelConnectionEditor(role: .chat, doneTitle: "Continue", showsCancel: false)
+            if step == 0 {
+                ModelConnectionEditor(role: .chat, doneTitle: "Continue", showsCancel: false, closes: false) { step = 1 }
+            } else {
+                Form {
+                    Section {
+                        RecognitionSettings()
+                    } header: {
+                        Text("How should the assistant hear you?")
+                    } footer: {
+                        Text("You can change it later in Settings → Assistant.").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .formStyle(.grouped)
+                .frame(height: 380)
+                HStack {
+                    Spacer()
+                    Button("Done") { dismiss() }
+                        .buttonStyle(.glassProminent)
+                        .keyboardShortcut(.defaultAction)
+                }
+                .padding(16)
+            }
         }
         .frame(width: 480)
         .interactiveDismissDisabled()

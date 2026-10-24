@@ -26,6 +26,7 @@ final class AppSettings {
     var decisionConnection: ModelConnection { didSet { save(decisionConnection, .decision) } }
     var transcriptionConnection: ModelConnection { didSet { save(transcriptionConnection, .transcription) } }
     var speechConnection: ModelConnection { didSet { save(speechConnection, .speech) } }
+    var recognitionMode: RecognitionMode { didSet { defaults.set(recognitionMode.rawValue, forKey: "recognitionMode") } }
 
     // MARK: Notch assistant
 
@@ -63,10 +64,13 @@ final class AppSettings {
             provider: ModelProvider.detect(oldDecisionURL), baseURL: oldDecisionURL,
             model: defaults.string(forKey: "decisionModel") ?? "",
             sameAsDefault: oldDecisionURL.isEmpty && (Keychain.token(Keychain.decisionAccount) ?? "").isEmpty)
-        transcriptionConnection = Self.load(.transcription) ?? ModelConnection(
+        let transcription = Self.load(.transcription) ?? ModelConnection(
             provider: .openAI, baseURL: "", model: defaults.string(forKey: "transcriptionModel") ?? "", sameAsDefault: true)
+        transcriptionConnection = transcription
         speechConnection = Self.load(.speech) ?? ModelConnection(
             provider: .openAI, baseURL: "", model: defaults.string(forKey: "ttsModel") ?? "", sameAsDefault: true)
+        recognitionMode = defaults.string(forKey: "recognitionMode").flatMap(RecognitionMode.init(rawValue:))
+            ?? (transcription.model.isEmpty ? .default : .provider)
         assistantEnabled = defaults.object(forKey: "assistantEnabled") as? Bool ?? true
         transcriptionLanguage = defaults.string(forKey: "transcriptionLanguage") ?? ""
         silencePause = defaults.object(forKey: "silencePause") as? Double ?? 1.5
