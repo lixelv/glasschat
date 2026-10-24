@@ -121,7 +121,7 @@ final class ChatController {
                             } else if case .app(let tool) = function.target {
                                 let args = call.arguments.trimmingCharacters(in: .whitespaces).isEmpty ? .object([:]) : JSONValue.parse(call.arguments)
                                 (text, isError) = args == nil ? ("The arguments are not valid JSON.", true)
-                                    : await tool.run(args!, chatID: id, controller: self)
+                                    : await tool.run(args!, chatID: id, callID: call.id, controller: self)
                             } else {
                                 (text, isError) = await MCPManager.shared.call(function, arguments: call.arguments)
                             }
@@ -306,6 +306,7 @@ final class ChatController {
     }
 
     func delete(_ id: Chat.ID) {
+        QuestionCenter.shared.dismiss(in: id)
         tasks[id]?.cancel()
         tasks[id] = nil
         streaming.remove(id)

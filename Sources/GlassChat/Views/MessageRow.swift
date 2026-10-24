@@ -52,6 +52,9 @@ struct MessageRow: View {
                 ForEach(message.steps) { step in
                     if !step.text.isEmpty { MarkdownMessage(text: step.text) }
                     if !step.calls.isEmpty { ToolCallsGroup(calls: step.calls) }
+                    if let asking = QuestionCenter.shared.pending[chatID], step.calls.contains(where: { $0.id == asking.callID }) {
+                        QuestionCard(chatID: chatID)
+                    }
                 }
                 if message.isPartial && message.content.isEmpty {
                     // Waiting for the model (also after the tools of a step have answered).

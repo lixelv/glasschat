@@ -17,6 +17,7 @@ enum AppTool: String, CaseIterable, Sendable {
     case enableMCP = "app_enable_mcp"
     case disableMCP = "app_disable_mcp"
     case say = "app_say"
+    case askUser = "app_ask_user"
 
     /// The key a chat switches these tools off with.
     static let key = "__app__"
@@ -35,6 +36,7 @@ enum AppTool: String, CaseIterable, Sendable {
         case .listMCP: "List the MCP servers: name, enabled, state, number of tools."
         case .enableMCP: "Enable an MCP server by name (it connects)."
         case .disableMCP: "Disable an MCP server by name (it disconnects)."
+        case .askUser: "Ask the user one to four questions with suggested answers and wait for their choice. They pick an option, type their own answer, or skip. Use it instead of asking in text when there are clear options."
         case .say: "Say a text aloud to the user (the macOS voice, or the TTS model from Settings). Returns when it has been spoken."
         }
     }
@@ -58,6 +60,15 @@ enum AppTool: String, CaseIterable, Sendable {
         case .setModel: return object(["model": string("Model id"), "chat_id": chatID], ["model"])
         case .enableMCP, .disableMCP: return object(["name": string("The server's name from app_list_mcp")], ["name"])
         case .say: return object(["text": string("What to say, as plain words (no Markdown)")], ["text"])
+        case .askUser:
+            let option = object(["label": string("The answer as shown on its button"), "description": string("A short explanation (optional)")], ["label"])
+            let question = object([
+                "question": string("The question"),
+                "header": string("A short label of one or two words (optional)"),
+                "options": .object(["type": .string("array"), "items": option, "minItems": .number(1), "maxItems": .number(6)]),
+                "multi_select": .object(["type": .string("boolean"), "description": .string("Several options may be chosen")]),
+            ], ["question", "options"])
+            return object(["questions": .object(["type": .string("array"), "items": question, "minItems": .number(1), "maxItems": .number(4)])], ["questions"])
         }
     }
 
@@ -65,13 +76,13 @@ enum AppTool: String, CaseIterable, Sendable {
 
     /// Runs the tool for the answer being written in `chatID`; the text goes back to the model.
     @MainActor
-    func run(_ args: JSONValue, chatID: Chat.ID, controller: ChatController) async -> (text: String, isError: Bool) {
-        do { return (try await perform(args, chatID: chatID, controller: controller), false) }
+    func run(_ args: JSONValue, chatID: Chat.ID, callID: String, controller: ChatController) async -> (text: String, isError: Bool) {
+        do { return (try await perform(args, chatID: chatID, callID: callID, controller: controller), false) }
         catch { return (error.localizedDescription, true) }
     }
 
     @MainActor
-    private func perform(_ args: JSONValue, chatID: Chat.ID, controller: ChatController) async throws -> String {
+    private func perform(_ args: JSONValue, chatID: Chat.ID, callID: String, controller: ChatController) async throws -> String {
         let store = ChatStore.shared
         func text(_ key: String) -> String? {
             args[key]?.string?.trimmingCharacters(in: .whitespacesAndNewlines).nilIfEmpty
@@ -191,6 +202,13 @@ enum AppTool: String, CaseIterable, Sendable {
         case .say:
             guard let words = text("text") else { throw MCPError(message: "A \"text\" is needed.") }
             return try await Speaker.shared.speak(words) ? "Spoken." : "Stopped by the user."
+
+        case .askUser:
+            let questions = try AskUser.parse(args)
+            guard let answers = try await QuestionCenter.shared.ask(questions, callID: callID, in: chatID) else {
+                throw MCPError(message: "The user dismissed the questions.")
+            }
+            return AskUser.result(questions, answers)
         }
     }
 }
