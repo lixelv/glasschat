@@ -40,6 +40,32 @@ Build and install the app using the instructions below. On first launch:
 
 Open **Settings (⌘,)** to change your connection, default model, or global system prompt. Use the chat toolbar to set a prompt for an individual conversation.
 
+## Notch Assistant
+
+GlassChat also lives in the notch of your MacBook (a black pill at the top centre on screens without one).
+Click it and talk: when you pause, the phrase is transcribed and sent to a chat called **Assistant**, and the
+answer appears right under the notch. After an answer it keeps listening for a few seconds, so you can go on
+talking; then a click wakes it again. Esc or a click elsewhere folds it; an answer that is still being written
+carries on, and the notch pulses when it is ready.
+
+| Setting (Settings → Assistant) | Default |
+|---|---|
+| Assistant in the Notch | on (closing the window then keeps GlassChat running) |
+| Transcription Model | empty: on-device Apple recognition; e.g. `whisper-1` to use your server |
+| Language (Apple) | the system's |
+| Pause that ends a phrase | 1.5 s |
+| Keep listening after an answer | 15 s |
+| Messages sent to the model | 16 (0: the whole chat) |
+| macOS Voice / TTS Model / TTS Voice | the system voice; e.g. `gpt-4o-mini-tts` + `alloy` |
+| Assistant Prompt | empty: the built-in one |
+| Advanced → Wait for speech after a click | 8 s |
+
+macOS asks once for the microphone and for speech recognition. The assistant can use every tool, and two more:
+
+- `app_say` says a text aloud (the macOS voice or the TTS model). Every answer also has a **Speak** button.
+- `app_ask_user` asks one to four questions with suggested answers: pick one, type your own (or say it, in the
+  notch), skip, then **Confirm**.
+
 ## Tools and MCP
 
 GlassChat supports local MCP servers over stdio and remote servers over Streamable HTTP. Open **Settings → MCP** and use the familiar `mcpServers` JSON format:
