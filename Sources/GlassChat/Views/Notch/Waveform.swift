@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// White bars beside the notch: the microphone or the voice, a flowing wave while thinking, flat otherwise.
-/// Drawn from the current level every frame, so nothing of a past sound stays on screen.
+/// White bars beside the notch: the microphone or the voice, a slow low wave while thinking, flat otherwise.
+/// Drawn from the current level every frame (nothing of a past sound stays) and glide between states.
 struct Waveform: View {
     enum Mode: Equatable { case idle, input, wave, output }
 
@@ -12,19 +12,22 @@ struct Waveform: View {
 
     static let minimumHeight: CGFloat = 4
 
+    @State private var smoothed = SmoothedValues()
+
     var body: some View {
-        TimelineView(.animation(paused: mode == .idle)) { context in
+        TimelineView(.animation(minimumInterval: 1 / 60)) { context in
             let t = context.date.timeIntervalSinceReferenceDate
+            let targets = (0..<bars).map { Double(Self.height($0, of: bars, mode: mode, level: level, time: t, maxHeight: maxHeight)) }
+            let heights = smoothed.advance(to: targets, at: t, timeConstant: 0.08)
             HStack(alignment: .center, spacing: 3) {
                 ForEach(0..<bars, id: \.self) { i in
                     RoundedRectangle(cornerRadius: 1.5)
                         .fill(.white)
-                        .frame(width: 3, height: Self.height(i, of: bars, mode: mode, level: level, time: t, maxHeight: maxHeight))
+                        .frame(width: 3, height: CGFloat(heights[i]))
                 }
             }
             .frame(height: maxHeight)
         }
-        .animation(.easeOut(duration: 0.08), value: level)
         .accessibilityHidden(true)
     }
 
@@ -35,7 +38,8 @@ struct Waveform: View {
         case .idle:
             return minimumHeight
         case .wave:
-            return minimumHeight + range * CGFloat(0.5 + 0.5 * sin(t * 6 + Double(i) * 0.8))
+            // Slow and low: thinking, not working hard.
+            return minimumHeight + range * CGFloat(0.3 + 0.3 * sin(t * 3 + Double(i) * 0.8))
         case .input, .output:
             let middle = Double(bars - 1) / 2
             let shape = 1 - 0.5 * abs(Double(i) - middle) / max(middle, 1)
