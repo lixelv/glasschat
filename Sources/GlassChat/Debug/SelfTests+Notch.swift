@@ -13,7 +13,7 @@ extension SelfTests {
         expect(NotchGeometry.shapeSize(.closed, notch: n, contentHeight: 300) == n, "closed")
         expect(NotchGeometry.shapeSize(.hover, notch: n, contentHeight: 0) == CGSize(width: 260, height: 36), "hover +36/side +4")
         expect(NotchGeometry.shapeSize(.busy, notch: n, contentHeight: 0) == CGSize(width: 244, height: 32), "busy +28/side")
-        expect(NotchGeometry.shapeSize(.expanded, notch: n, contentHeight: 200) == CGSize(width: 480, height: 232), "expanded fits")
+        expect(NotchGeometry.shapeSize(.expanded, notch: n, contentHeight: 200) == CGSize(width: 576, height: 232), "expanded fits, 1.2 × 480 wide")
         expect(NotchGeometry.shapeSize(.expanded, notch: n, contentHeight: 900, maxHeight: 520).height == 520, "expanded max")
         // The open notch grows down with the answer, to two thirds of the screen.
         expect(NotchGeometry.maxExpandedHeight(screenHeight: 982) == 655, "two thirds of the screen")

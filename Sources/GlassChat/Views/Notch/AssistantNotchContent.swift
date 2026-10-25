@@ -36,11 +36,14 @@ struct AssistantNotchContent: View {
                     if let answer {
                         let calls = answer.steps.flatMap(\.calls)
                         if !calls.isEmpty { ToolChips(calls: calls) }
-                        let text = (answer.steps.map(\.text) + [answer.content]).filter { !$0.isEmpty }.joined(separator: "\n\n")
-                        if !text.isEmpty { MarkdownMessage(text: text, compact: true) }
-                        if let visualization = calls.filter({ $0.result != nil }).compactMap(Visualization.init).last {
-                            VisualizationView(visualization, maxHeight: .infinity, dark: true)
+                        // As in the chat: each step's text, then the pages it drew, then the final text.
+                        ForEach(answer.steps) { step in
+                            if !step.text.isEmpty { MarkdownMessage(text: step.text, compact: true) }
+                            ForEach(step.calls.compactMap(Visualization.init), id: \.id) { visualization in
+                                VisualizationView(visualization, maxHeight: .infinity, dark: true)
+                            }
                         }
+                        if !answer.content.isEmpty { MarkdownMessage(text: answer.content, compact: true) }
                     }
                     if QuestionCenter.shared.pending[id] != nil {
                         QuestionCard(chatID: id)

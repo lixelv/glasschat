@@ -6,7 +6,7 @@ enum NotchState: Equatable {
 
 /// Where the notch is and how big the shape over it gets.
 enum NotchGeometry {
-    static let expandedWidth: CGFloat = 480
+    static let expandedWidth: CGFloat = 576
     /// Before the screen is known.
     static let defaultMaxHeight: CGFloat = 520
     /// Wider on each side while hovered or working.

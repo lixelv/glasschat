@@ -12,7 +12,7 @@ enum VisualDirectives {
         structured data; not for a short fact or small talk. Prefer charts, diagrams and interactive elements \
         (hover details, toggles, sliders, tabs) to tables and dry text: show as much as helps to understand, and keep \
         the text answer short beside it. \
-        It takes the whole width (about 700 px in the chat, 460 px in the notch, dark there) and grows to the full \
+        It takes the whole width (about 700 px in the chat, 540 px in the notch, dark there) and grows to the full \
         height of its content; height only sets a minimum. \
         The page has GlassChat's style: system font, light and dark colors as CSS variables (--fg, --muted, --line, \
         --card, --accent, --green, --red, --orange, --yellow, --purple, --teal) and classes .card, .row, .grid, .stat, \
