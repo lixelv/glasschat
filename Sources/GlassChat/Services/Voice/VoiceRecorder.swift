@@ -35,7 +35,7 @@ final class VoiceRecorder {
     private(set) var level = 0.0
     private(set) var isRecording = false
 
-    private let engine = AVAudioEngine()
+    private var hub: AudioEngineHub { AudioEngineHub.shared }
     private var detector = SilenceDetector(.init())
     private var elapsed: TimeInterval = 0
     private var writer: PhraseWriter?
@@ -52,7 +52,8 @@ final class VoiceRecorder {
     }
 
     func inputFormat() throws -> AVAudioFormat {
-        let format = engine.inputNode.outputFormat(forBus: 0)
+        hub.configure()
+        let format = hub.engine.inputNode.outputFormat(forBus: 0)
         guard format.channelCount > 0, format.sampleRate > 0 else { throw VoiceError.noInput }
         return format
     }
@@ -68,12 +69,11 @@ final class VoiceRecorder {
         do { writer = try PhraseWriter(url: url, input: format, onBuffer: onBuffer) }
         catch { throw VoiceError.engine(error.localizedDescription) }
         detector = SilenceDetector(config)
-        engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: format, block: Self.tap(writer, recorder: self))
+        hub.engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: format, block: Self.tap(writer, recorder: self))
         do {
-            engine.prepare()
-            try engine.start()
+            try hub.acquire()
         } catch {
-            engine.inputNode.removeTap(onBus: 0)
+            hub.engine.inputNode.removeTap(onBus: 0)
             throw VoiceError.engine(error.localizedDescription)
         }
         self.writer = writer
@@ -130,8 +130,8 @@ final class VoiceRecorder {
     private func end(_ result: Recording?) {
         if isRecording { voiceLog.debug("recording ended, phrase: \(result != nil)") }
         if isRecording {
-            engine.inputNode.removeTap(onBus: 0)
-            engine.stop()
+            hub.engine.inputNode.removeTap(onBus: 0)
+            hub.release()
         }
         isRecording = false
         level = 0

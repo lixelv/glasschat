@@ -55,7 +55,10 @@ final class Speaker {
     private func finishUp() {
         synthesizer?.stopSpeaking(at: .immediate)
         synthesizer = nil
-        playback?.stop()
+        if let playback {
+            playback.stop()
+            AudioEngineHub.shared.release()
+        }
         playback = nil
         done = nil
         isSpeaking = false
@@ -75,11 +78,7 @@ final class Speaker {
             voiceLog.error("Supertonic failed; the macOS voice speaks")
             return false
         }
-        guard done === once else { return true }
-        let playback = SynthPlayback(
-            onLevel: { level in Task { @MainActor in Speaker.shared.setLevel(level, if: once) } },
-            onDone: { once.resume(true) })
-        self.playback = playback
+        guard done === once, let playback = makePlayback(once) else { return done === once ? false : true }
         // In pieces, so the avatar's mouth follows the voice.
         let piece = 2048
         var start = 0
@@ -97,14 +96,26 @@ final class Speaker {
         return true
     }
 
+    /// Plays through the shared engine, so the echo canceller hears the assistant's own voice.
+    private func makePlayback(_ once: ResumeOnce<Bool>) -> SynthPlayback? {
+        let hub = AudioEngineHub.shared
+        do { try hub.acquire() } catch {
+            voiceLog.error("audio engine failed: \(error.localizedDescription, privacy: .public)")
+            return nil
+        }
+        let playback = SynthPlayback(
+            player: hub.player, format: hub.playerFormat,
+            onLevel: { level in Task { @MainActor in Speaker.shared.setLevel(level, if: once) } },
+            onDone: { once.resume(true) })
+        self.playback = playback
+        return playback
+    }
+
     private func startSystemVoice(_ text: String, once: ResumeOnce<Bool>) {
         let utterance = AVSpeechUtterance(string: text)
         utterance.voice = Self.voice(for: text)
-        let playback = SynthPlayback(
-            onLevel: { level in Task { @MainActor in Speaker.shared.setLevel(level, if: once) } },
-            onDone: { once.resume(true) })
+        guard let playback = makePlayback(once) else { once.resume(false); return }
         let synthesizer = AVSpeechSynthesizer()
-        self.playback = playback
         self.synthesizer = synthesizer
         synthesizer.write(utterance, toBufferCallback: Self.callback(playback))
     }
@@ -134,9 +145,9 @@ final class Speaker {
 /// Plays the buffers the synthesizer writes and measures them; used on the synthesizer's and the engine's threads.
 private final class SynthPlayback: @unchecked Sendable {
     private let lock = NSLock()
-    private let engine = AVAudioEngine()
-    private let player = AVAudioPlayerNode()
-    private var format: AVAudioFormat?
+    private let player: AVAudioPlayerNode
+    /// The player's format: every buffer is converted to it.
+    private let format: AVAudioFormat
     private var converter: AVAudioConverter?
     private var scheduled = 0
     private var played = 0
@@ -145,7 +156,10 @@ private final class SynthPlayback: @unchecked Sendable {
     private let onLevel: @Sendable (Double) -> Void
     private let onDone: @Sendable () -> Void
 
-    init(onLevel: @escaping @Sendable (Double) -> Void, onDone: @escaping @Sendable () -> Void) {
+    init(player: AVAudioPlayerNode, format: AVAudioFormat,
+         onLevel: @escaping @Sendable (Double) -> Void, onDone: @escaping @Sendable () -> Void) {
+        self.player = player
+        self.format = format
         self.onLevel = onLevel
         self.onDone = onDone
     }
@@ -159,14 +173,7 @@ private final class SynthPlayback: @unchecked Sendable {
             checkDone()
             return
         }
-        guard let playable = floatBuffer(pcm) else { return }
-        if format == nil {
-            format = playable.format
-            engine.attach(player)
-            engine.connect(player, to: engine.mainMixerNode, format: playable.format)
-            do { try engine.start() } catch { finished = true; onDone(); return }
-            player.play()
-        }
+        guard let playable = converted(pcm) else { return }
         scheduled += 1
         let level = Self.level(playable)
         player.scheduleBuffer(playable, completionCallbackType: .dataPlayedBack) { [self] _ in
@@ -182,8 +189,9 @@ private final class SynthPlayback: @unchecked Sendable {
         lock.lock()
         finished = true
         lock.unlock()
+        // The shared player keeps running; what was scheduled for this text is dropped.
         player.stop()
-        engine.stop()
+        player.play()
     }
 
     /// Under the lock.
@@ -194,14 +202,21 @@ private final class SynthPlayback: @unchecked Sendable {
         onDone()
     }
 
-    /// The player node plays float samples; the synthesizer often writes 16-bit ones.
-    private func floatBuffer(_ pcm: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
-        if pcm.format.commonFormat == .pcmFormatFloat32 { return pcm }
-        guard let target = AVAudioFormat(standardFormatWithSampleRate: pcm.format.sampleRate, channels: pcm.format.channelCount) else { return nil }
-        if converter == nil { converter = AVAudioConverter(from: pcm.format, to: target) }
-        guard let converter, let out = AVAudioPCMBuffer(pcmFormat: target, frameCapacity: pcm.frameLength) else { return nil }
-        do { try converter.convert(to: out, from: pcm) } catch { return nil }
-        return out
+    /// The buffer in the player's format (rate and sample type), whatever the synthesizer wrote.
+    private func converted(_ pcm: AVAudioPCMBuffer) -> AVAudioPCMBuffer? {
+        if pcm.format == format { return pcm }
+        if converter == nil || converter?.inputFormat != pcm.format { converter = AVAudioConverter(from: pcm.format, to: format) }
+        guard let converter else { return nil }
+        let capacity = AVAudioFrameCount(Double(pcm.frameLength) * format.sampleRate / pcm.format.sampleRate) + 64
+        guard let out = AVAudioPCMBuffer(pcmFormat: format, frameCapacity: capacity) else { return nil }
+        var given = false
+        converter.convert(to: out, error: nil) { _, status in
+            if given { status.pointee = .noDataNow; return nil }
+            given = true
+            status.pointee = .haveData
+            return pcm
+        }
+        return out.frameLength > 0 ? out : nil
     }
 
     private static func level(_ buffer: AVAudioPCMBuffer) -> Double {
