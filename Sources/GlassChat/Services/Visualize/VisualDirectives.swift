@@ -9,9 +9,11 @@ enum VisualDirectives {
         return """
         Draw a visualization in the chat and the notch: the body of an HTML page, with <style> and <script>. \
         Use it when the answer has numbers, comparisons, shares, trends, steps, a process, a timeline or schedule, or \
-        structured data; not for a short fact or small talk. Keep the text answer short beside it. \
-        Width is about 600 px in the chat and 460 px in the notch (dark there); the page grows to its content \
-        (at most 640 px, 260 px in the notch) unless you give height. \
+        structured data; not for a short fact or small talk. Prefer charts, diagrams and interactive elements \
+        (hover details, toggles, sliders, tabs) to tables and dry text: show as much as helps to understand, and keep \
+        the text answer short beside it. \
+        It takes the whole width (about 700 px in the chat, 460 px in the notch, dark there) and grows to the full \
+        height of its content; height only sets a minimum. \
         The page has GlassChat's style: system font, light and dark colors as CSS variables (--fg, --muted, --line, \
         --card, --accent, --green, --red, --orange, --yellow, --purple, --teal) and classes .card, .row, .grid, .stat, \
         .muted, .good, .bad, .bar > i, table. The network is blocked: no external URLs, images or fonts; put data inline. \

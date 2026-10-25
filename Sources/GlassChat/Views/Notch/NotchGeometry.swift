@@ -7,7 +7,8 @@ enum NotchState: Equatable {
 /// Where the notch is and how big the shape over it gets.
 enum NotchGeometry {
     static let expandedWidth: CGFloat = 480
-    static let maxExpandedHeight: CGFloat = 520
+    /// Before the screen is known.
+    static let defaultMaxHeight: CGFloat = 520
     /// Wider on each side while hovered or working.
     static let hoverGrow: CGFloat = 36
     static let busyGrow: CGFloat = 28
@@ -24,12 +25,17 @@ enum NotchGeometry {
         return CGRect(x: screenFrame.midX - width / 2, y: screenFrame.maxY - height, width: width, height: height)
     }
 
-    static func shapeSize(_ state: NotchState, notch: CGSize, contentHeight: CGFloat) -> CGSize {
+    /// The open notch grows down with what it shows, to two thirds of the screen.
+    static func maxExpandedHeight(screenHeight: CGFloat) -> CGFloat {
+        (screenHeight * 2 / 3).rounded()
+    }
+
+    static func shapeSize(_ state: NotchState, notch: CGSize, contentHeight: CGFloat, maxHeight: CGFloat = defaultMaxHeight) -> CGSize {
         switch state {
         case .closed: notch
         case .hover: CGSize(width: notch.width + 2 * hoverGrow, height: notch.height + 4)
         case .busy: CGSize(width: notch.width + 2 * busyGrow, height: notch.height)
-        case .expanded: CGSize(width: expandedWidth, height: min(notch.height + contentHeight, maxExpandedHeight))
+        case .expanded: CGSize(width: expandedWidth, height: min(notch.height + contentHeight, maxHeight))
         }
     }
 

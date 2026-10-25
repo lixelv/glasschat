@@ -17,8 +17,8 @@ struct Visualization: Equatable {
     }
 }
 
-/// What `app_visualize` drew: its page in the sandbox, as tall as its content (or the height asked for), at most
-/// `maxHeight`; taller pages scroll inside.
+/// What `app_visualize` drew: its page in the sandbox, as tall as its content (at least the height asked for),
+/// at most `maxHeight`; taller pages scroll inside.
 struct VisualizationView: View {
     let html: String
     let libraries: [String]
@@ -37,7 +37,7 @@ struct VisualizationView: View {
     @State private var contentHeight: CGFloat = 60
 
     var body: some View {
-        let wanted = height.map { CGFloat($0) } ?? contentHeight
+        let wanted = max(height.map { CGFloat($0) } ?? 0, contentHeight)
         VisualWebView(html: html, libraries: libraries, dark: dark, contentHeight: $contentHeight)
             .frame(height: min(max(wanted, 24), maxHeight))
             .accessibilityLabel("Visualization")

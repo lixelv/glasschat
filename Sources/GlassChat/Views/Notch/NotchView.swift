@@ -22,6 +22,8 @@ final class NotchModel {
     var onHoverEnd: (() -> Void)?
     /// The height of the expanded body, measured.
     var contentHeight: CGFloat = 0
+    /// How tall the open notch may get on this screen.
+    var maxHeight = NotchGeometry.defaultMaxHeight
     var onExpand: (() -> Void)?
     var onCollapse: (() -> Void)?
 
@@ -32,7 +34,7 @@ final class NotchModel {
     }
 
     var shapeSize: CGSize {
-        NotchGeometry.shapeSize(state, notch: notchSize, contentHeight: contentHeight)
+        NotchGeometry.shapeSize(state, notch: notchSize, contentHeight: contentHeight, maxHeight: maxHeight)
     }
 
     func expand() {

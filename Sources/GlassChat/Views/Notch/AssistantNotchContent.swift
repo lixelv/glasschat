@@ -8,7 +8,7 @@ struct AssistantNotchContent: View {
     @State private var bodyHeight: CGFloat = 0
 
     /// The height left under the notch row for the scrolling part (the buttons take the rest).
-    private let maxBody: CGFloat = NotchGeometry.maxExpandedHeight - 32 - 44
+    private var maxBody: CGFloat { NotchPanelController.shared.model.maxHeight - 32 - 44 }
 
     var body: some View {
         let id = assistant.chatID
@@ -39,7 +39,7 @@ struct AssistantNotchContent: View {
                         let text = (answer.steps.map(\.text) + [answer.content]).filter { !$0.isEmpty }.joined(separator: "\n\n")
                         if !text.isEmpty { MarkdownMessage(text: text, compact: true) }
                         if let visualization = calls.filter({ $0.result != nil }).compactMap(Visualization.init).last {
-                            VisualizationView(visualization, maxHeight: 260, dark: true)
+                            VisualizationView(visualization, maxHeight: .infinity, dark: true)
                         }
                     }
                     if QuestionCenter.shared.pending[id] != nil {

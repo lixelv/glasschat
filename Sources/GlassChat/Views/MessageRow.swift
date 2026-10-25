@@ -54,8 +54,8 @@ struct MessageRow: View {
                     if !step.calls.isEmpty { ToolCallsGroup(calls: step.calls) }
                     ForEach(step.calls.filter { $0.result != nil }) { call in
                         if let visualization = Visualization(call) {
-                            VisualizationView(visualization, maxHeight: 640)
-                                .frame(maxWidth: 640, alignment: .leading)
+                            VisualizationView(visualization, maxHeight: .infinity)
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
                     }
                     if let asking = QuestionCenter.shared.pending[chatID], step.calls.contains(where: { $0.id == asking.callID }) {

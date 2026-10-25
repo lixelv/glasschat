@@ -14,7 +14,11 @@ extension SelfTests {
         expect(NotchGeometry.shapeSize(.hover, notch: n, contentHeight: 0) == CGSize(width: 260, height: 36), "hover +36/side +4")
         expect(NotchGeometry.shapeSize(.busy, notch: n, contentHeight: 0) == CGSize(width: 244, height: 32), "busy +28/side")
         expect(NotchGeometry.shapeSize(.expanded, notch: n, contentHeight: 200) == CGSize(width: 480, height: 232), "expanded fits")
-        expect(NotchGeometry.shapeSize(.expanded, notch: n, contentHeight: 900).height == 520, "expanded max")
+        expect(NotchGeometry.shapeSize(.expanded, notch: n, contentHeight: 900, maxHeight: 520).height == 520, "expanded max")
+        // The open notch grows down with the answer, to two thirds of the screen.
+        expect(NotchGeometry.maxExpandedHeight(screenHeight: 982) == 655, "two thirds of the screen")
+        expect(NotchGeometry.shapeSize(.expanded, notch: n, contentHeight: 600, maxHeight: 655).height == 632, "it grows with the answer")
+        expect(NotchGeometry.shapeSize(.expanded, notch: n, contentHeight: 2000, maxHeight: 655).height == 655, "up to two thirds")
 
         // What a click does, by where it happened (its own location, not where the pointer is later).
         let shape = CGRect(x: 510, y: 450, width: 492, height: 532)

@@ -46,10 +46,11 @@ extension SelfTests {
         let directions = VisualDirectives.description(libraries: withD3.entries)
         expect(directions.contains("chart.js (global Chart)") && directions.contains("d3 (global d3)"), "the libraries are listed")
         expect(directions.contains("libraries"), "how to choose them")
+        expect(directions.contains("Prefer charts") && directions.contains("interactive"), "charts and interactivity over tables and dry text")
         expect(AppModule.of("glasschat__app_visualize") == .visualize && AppModule.of("glasschat___app_install_library") == .visualize
                && AppModule.of("glasschat___app_remove_library") == .visualize, "visualize tools sit in their module")
         expect(AssistantPrompt.standard.contains("glasschat__app_visualize"), "the assistant is told to visualize")
-        expect(AssistantPrompt.previous.count == 2, "the former standard prompt is replaced")
+        expect(AssistantPrompt.previous.count == 3, "the former standard prompts are replaced")
 
         // A visualize call in the chat becomes what is drawn; other calls do not.
         let call = ToolCall(id: "c1", name: "glasschat__app_visualize",

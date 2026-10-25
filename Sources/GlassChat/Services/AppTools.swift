@@ -91,7 +91,7 @@ enum AppTool: String, CaseIterable, Sendable {
             return object(["html": string("The page body: markup, <style> and <script>"),
                            "libraries": .object(["type": .string("array"), "items": .object(["type": .string("string")]),
                                                  "description": .string("Names of the libraries it uses")]),
-                           "height": .object(["type": .string("number"), "description": .string("Pixels; leave out to fit the content")]),
+                           "height": .object(["type": .string("number"), "description": .string("Minimum pixels; it grows to fit the content")]),
                            "title": string("A few words on what it shows")], ["html"])
         case .installLibrary:
             return object(["package": string("The npm package (\"d3\", \"@observablehq/plot\")"),

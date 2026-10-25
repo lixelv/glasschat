@@ -102,7 +102,8 @@ final class NotchPanelController {
         let notch = NotchGeometry.notchRect(on: screen)
         model.notchSize = notch.size
         let width = max(NotchGeometry.expandedWidth, notch.width + 2 * NotchGeometry.hoverGrow) + 12
-        let height = NotchGeometry.maxExpandedHeight + 8
+        model.maxHeight = NotchGeometry.maxExpandedHeight(screenHeight: screen.frame.height)
+        let height = model.maxHeight + 8
         panel.setFrame(CGRect(x: notch.midX - width / 2, y: screen.frame.maxY - height, width: width, height: height), display: true)
     }
 
