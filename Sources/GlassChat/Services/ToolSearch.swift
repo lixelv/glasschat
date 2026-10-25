@@ -1,11 +1,13 @@
 import Foundation
 
-/// `search_tools`: finds tools by what they do, among all of them (switched off ones included), so the
-/// switched-off ones need not be sent with every request. A decision model (e.g. Jev, through `/alpha/decisions`)
-/// ranks them in `choice` mode, the options being the function names; without one, words are matched.
+/// `search_tools` finds the hidden tools (not sent with every request), `search_all_tools` every tool, switched-off
+/// ones included (`ToolCatalog`). A decision model (e.g. Jev, through `/alpha/decisions`) ranks them in `choice` mode,
+/// the options being the function names; without one, words are matched.
 /// The best `decisionTopN` are offered to the model for the rest of the answer.
 enum ToolSearch {
-    static let description = "Find tools by what they should do, written in English (e.g. \"show a notification\", \"call a model\", \"list agents\"); a tool's exact name works too. Tools that are switched off can only be used after they are found here; the found ones are offered from your next step on. Search when no tool you have fits; when nothing matches, you get the list of all tools to pick names from."
+    static let description = "Find a tool that is not in your list: rarely used tools are kept out of it (chats, models, MCP servers, notifications, alert windows, libraries, and servers the user set to on demand). Describe what it should do in English (e.g. \"show a notification\", \"switch model\"), or give its exact name. The found tools are offered from your next step on. If nothing fits, use search_all_tools."
+
+    static let allDescription = "Search every tool, also the ones the user switched off. Only when search_tools found nothing that fits. Describe what it should do in English, or give its exact name; the found tools are offered from your next step on."
 
     static let parameters: JSONValue = .object([
         "type": .string("object"),

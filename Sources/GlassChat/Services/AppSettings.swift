@@ -18,6 +18,14 @@ final class AppSettings {
 
     /// Tool groups switched off (MCP server names, `AppTool.key`): one choice for every chat.
     var disabledTools: Set<String> { didSet { defaults.set(Array(disabledTools), forKey: "disabledTools") } }
+    /// MCP servers whose tools are not offered with every request: `search_tools` finds them.
+    var onDemandServers: Set<String> { didSet { defaults.set(Array(onDemandServers), forKey: "onDemandServers") } }
+
+    /// The switches as saved; "App" switched off as a whole (before the modules) is every module switched off.
+    static func migratedDisabled(_ saved: Set<String>) -> Set<String> {
+        guard saved.contains(AppTool.key) else { return saved }
+        return saved.subtracting([AppTool.key]).union(AppModule.switchable.map(\.key))
+    }
 
     /// How many tools a search hands to the model.
     var decisionTopN: Int { didSet { defaults.set(decisionTopN, forKey: "decisionTopN") } }
@@ -67,7 +75,8 @@ final class AppSettings {
         defaultModel = defaults.string(forKey: "defaultModel") ?? ""
         systemPrompt = defaults.string(forKey: "systemPrompt") ?? ""
         token = Keychain.token() ?? ""
-        disabledTools = Set(defaults.stringArray(forKey: "disabledTools") ?? [])
+        disabledTools = Self.migratedDisabled(Set(defaults.stringArray(forKey: "disabledTools") ?? []))
+        onDemandServers = Set(defaults.stringArray(forKey: "onDemandServers") ?? [])
         decisionTopN = defaults.object(forKey: "decisionTopN") as? Int ?? 4
         chatProvider = defaults.string(forKey: "chatProvider").flatMap(ModelProvider.init(rawValue:))
             ?? ModelProvider.detect(defaults.string(forKey: "baseURL") ?? Self.defaultBaseURL)

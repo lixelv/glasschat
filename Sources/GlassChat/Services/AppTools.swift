@@ -4,8 +4,8 @@ import UserNotifications
 /// The built-in "App" tools: the model talks to the user and works the app — notifications, an alert window,
 /// chats, models and MCP servers. Switching chats and models waits until the answer that asked for it is over.
 enum AppTool: String, CaseIterable, Sendable {
-    case notify = "app_notify"
-    case alert = "app_alert"
+    case notify = "_app_notify"
+    case alert = "_app_alert"
     case listChats = "_app_list_chats"
     case createChat = "_app_create_chat"
     case switchChat = "_app_switch_chat"
@@ -23,8 +23,19 @@ enum AppTool: String, CaseIterable, Sendable {
     case edit = "app_edit"
     case bash = "app_bash"
 
-    /// The key a chat switches these tools off with.
+    /// The start of the switch keys of the built-in tools (`AppModule.key`).
     static let key = "__app__"
+
+    var module: AppModule {
+        switch self {
+        case .say: .necessary
+        case .read, .write, .edit, .bash: .files
+        case .askUser, .notify, .alert: .user
+        case .listChats, .createChat, .switchChat, .renameChat, .deleteChat: .chats
+        case .listModels, .setModel: .models
+        case .listMCP, .enableMCP, .disableMCP: .mcp
+        }
+    }
 
     var description: String {
         switch self {
@@ -44,7 +55,7 @@ enum AppTool: String, CaseIterable, Sendable {
         case .write: "Create or replace a file with the given content (missing folders are created). Read a file before replacing it."
         case .edit: "Replace an exact piece of text in a file. old_string must occur once, unless replace_all is true; include enough surrounding text to make it unique."
         case .bash: "Run a command in zsh on this Mac (a login shell, so the user's PATH). The working folder starts at the home folder and a cd is remembered for this chat. Returns stdout and stderr (cut at 30000 characters) and the exit code. Timeout 120 s by default, at most 600 s."
-        case .askUser: "Ask the user one to four questions with suggested answers and wait for their choice. They pick an option, type their own answer, or skip. Use it instead of asking in text when there are clear options."
+        case .askUser: "Ask 1-4 questions with answer options; waits for the user's pick, reply or skip."
         case .say: "Say a text aloud to the user (the macOS voice, or the TTS model from Settings). Returns when it has been spoken."
         }
     }
@@ -83,14 +94,15 @@ enum AppTool: String, CaseIterable, Sendable {
                            "replace_all": .object(["type": .string("boolean"), "description": .string("Replace every occurrence")])],
                           ["path", "old_string", "new_string"])
         case .askUser:
-            let option = object(["label": string("The answer as shown on its button"), "description": string("A short explanation (optional)")], ["label"])
+            let text: JSONValue = .object(["type": .string("string")])
+            let option = object(["label": text, "description": text], ["label"])
             let question = object([
-                "question": string("The question"),
-                "header": string("A short label of one or two words (optional)"),
-                "options": .object(["type": .string("array"), "items": option, "minItems": .number(1), "maxItems": .number(6)]),
-                "multi_select": .object(["type": .string("boolean"), "description": .string("Several options may be chosen")]),
+                "question": text,
+                "header": text,
+                "options": .object(["type": .string("array"), "items": option, "maxItems": .number(6)]),
+                "multi_select": .object(["type": .string("boolean")]),
             ], ["question", "options"])
-            return object(["questions": .object(["type": .string("array"), "items": question, "minItems": .number(1), "maxItems": .number(4)])], ["questions"])
+            return object(["questions": .object(["type": .string("array"), "items": question, "maxItems": .number(4)])], ["questions"])
         }
     }
 
@@ -128,7 +140,7 @@ enum AppTool: String, CaseIterable, Sendable {
                     throw MCPError(message: "macOS asked the user to allow GlassChat's notifications; they have not allowed them (yet).")
                 }
             } else if settings.authorizationStatus == .denied {
-                throw MCPError(message: "Notifications are off for GlassChat (System Settings → Notifications). Use app_alert instead.")
+                throw MCPError(message: "Notifications are off for GlassChat (System Settings → Notifications). Find and use _app_alert instead.")
             }
             let content = UNMutableNotificationContent()
             content.title = text("title") ?? "GlassChat"

@@ -300,21 +300,22 @@ final class MCPManager {
             case server(MCPServer.ID, tool: String)
             case registry(RegistryTool)
             case app(AppTool)
-            /// `search_tools`: always offered, never switched off.
-            case search
+            /// `search_tools` (hidden tools) and `search_all_tools` (every tool): always offered, never switched off.
+            case search, searchAll
         }
 
         let definition: JSONValue
         let target: Target
-        /// The switch it belongs to: a server's name or `AppTool.key` (nil for the search).
+        /// The switch it belongs to: a server's id or an `AppModule.key` (nil for the necessary tools).
         let group: String?
         /// "server: tool — description", what a search ranks it by.
         let summary: String
     }
 
     /// The prefix of the built-in functions (shown as "GlassChat" on their cards).
-    static let registryPrefix = "glasschat"
+    nonisolated static let registryPrefix = "glasschat"
     static let searchName = registryPrefix + "__search_tools"
+    static let searchAllName = registryPrefix + "__search_all_tools"
 
     /// Every function there is: the App tools (with the registry), the tools of every connected server, and the search.
     func allFunctions() -> [String: Function] {
@@ -323,13 +324,14 @@ final class MCPManager {
             result[name] = Function(definition: Self.function(name, description, parameters), target: target, group: group, summary: summary)
         }
         add(Self.searchName, ToolSearch.description, ToolSearch.parameters, .search, group: nil, summary: "")
+        add(Self.searchAllName, ToolSearch.allDescription, ToolSearch.parameters, .searchAll, group: nil, summary: "")
         for tool in AppTool.allCases {
             add(Self.registryPrefix + "__" + tool.rawValue, tool.description, tool.parameters, .app(tool),
-                group: AppTool.key, summary: "GlassChat: \(tool.rawValue) — \(tool.description)")
+                group: tool.module.group, summary: "GlassChat: \(tool.rawValue) — \(tool.description)")
         }
         for tool in RegistryTool.allCases {
             add(Self.registryPrefix + "__" + tool.rawValue, tool.description, tool.parameters, .registry(tool),
-                group: AppTool.key, summary: "GlassChat: \(tool.rawValue) — \(tool.description)")
+                group: AppModule.mcp.group, summary: "GlassChat: \(tool.rawValue) — \(tool.description)")
         }
         for server in servers where server.enabled && status[server.id] == .connected {
             let prefix = Self.slug(server.name, limit: 20)
@@ -369,7 +371,7 @@ final class MCPManager {
         case .registry(let tool):
             do { return (try registry(tool, args), false) }
             catch { return (error.localizedDescription, true) }
-        case .app, .search:
+        case .app, .search, .searchAll:
             return ("This tool runs in the chat controller.", true)
         case .server(let id, let tool):
             guard let transport = transports[id] else { return ("The MCP server of this tool is not connected.", true) }

@@ -217,7 +217,7 @@ final class ChatController {
     /// When an MCP server could not start for want of npx (or another command), the model is asked
     /// (once per chat) to tell the user with an alert how to install it.
     private func missingCommandNote(_ chat: Chat) -> String? {
-        guard !AppSettings.shared.disabledTools.contains(AppTool.key) else { return nil }
+        guard !AppSettings.shared.disabledTools.contains(AppModule.user.key) else { return nil }
         let missing = MCPManager.shared.missingCommands.filter { !toldMissing.contains("\(chat.id)|\($0.server)") }
         guard !missing.isEmpty else { return nil }
         for item in missing { toldMissing.insert("\(chat.id)|\(item.server)") }
@@ -226,7 +226,7 @@ final class ChatController {
         let how = node
             ? "npx comes with Node.js. Steps: install Homebrew if needed (`/bin/bash -c \"$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)\"`), then `brew install node`, or take the installer from https://nodejs.org; check with `node -v` and `npx -v`; then reconnect the server (Settings → MCP) or restart GlassChat."
             : "Tell them which program is missing and the usual way to install it on macOS (for `uvx`: `brew install uv` or `curl -LsSf https://astral.sh/uv/install.sh | sh`), then to reconnect the server."
-        return "Some MCP servers could not start because a command is not installed: \(list). Before you answer, call glasschat__app_alert to tell the user, in their language, to install it, with brief steps. \(how)"
+        return "Some MCP servers could not start because a command is not installed: \(list). Before you answer, call glasschat___app_alert to tell the user, in their language, to install it, with brief steps. \(how)"
     }
 
     private func edit(_ id: Chat.ID, _ messageID: Message.ID, _ change: (inout Message) -> Void) {
