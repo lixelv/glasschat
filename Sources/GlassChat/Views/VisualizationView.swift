@@ -1,6 +1,22 @@
 import SwiftUI
 import WebKit
 
+/// An `app_visualize` call's page, as the chat and the notch draw it.
+struct Visualization: Equatable {
+    let html: String
+    let libraries: [String]
+    let height: Double?
+
+    /// Nil for other calls, and while the arguments are still being written.
+    init?(_ call: ToolCall) {
+        guard call.name == MCPManager.registryPrefix + "__" + AppTool.visualize.rawValue,
+              let args = JSONValue.parse(call.arguments), let html = args["html"]?.string, !html.isEmpty else { return nil }
+        self.html = html
+        libraries = args["libraries"]?.array?.compactMap(\.string) ?? []
+        height = args["height"]?.double
+    }
+}
+
 /// What `app_visualize` drew: its page in the sandbox, as tall as its content (or the height asked for), at most
 /// `maxHeight`; taller pages scroll inside.
 struct VisualizationView: View {
@@ -9,6 +25,14 @@ struct VisualizationView: View {
     let height: Double?
     let maxHeight: CGFloat
     var dark = false
+
+    init(_ visualization: Visualization, maxHeight: CGFloat, dark: Bool = false) {
+        html = visualization.html
+        libraries = visualization.libraries
+        height = visualization.height
+        self.maxHeight = maxHeight
+        self.dark = dark
+    }
 
     @State private var contentHeight: CGFloat = 60
 

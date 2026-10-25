@@ -22,6 +22,9 @@ enum AppTool: String, CaseIterable, Sendable {
     case write = "app_write"
     case edit = "app_edit"
     case bash = "app_bash"
+    case visualize = "app_visualize"
+    case installLibrary = "_app_install_library"
+    case removeLibrary = "_app_remove_library"
 
     /// The start of the switch keys of the built-in tools (`AppModule.key`).
     static let key = "__app__"
@@ -34,11 +37,16 @@ enum AppTool: String, CaseIterable, Sendable {
         case .listChats, .createChat, .switchChat, .renameChat, .deleteChat: .chats
         case .listModels, .setModel: .models
         case .listMCP, .enableMCP, .disableMCP: .mcp
+        case .visualize, .installLibrary, .removeLibrary: .visualize
         }
     }
 
+    @MainActor
     var description: String {
         switch self {
+        case .visualize: VisualDirectives.description(libraries: VisualLibraries.shared.entries)
+        case .installLibrary: "Install an npm library for app_visualize from jsDelivr (its js and css entry points, or the given file; at most 10 MB). The user may be asked first. It is offered to visualizations by its name from then on."
+        case .removeLibrary: "Remove a library of app_visualize by its name."
         case .notify: "Show a macOS notification (top right of the screen) with a title and a text."
         case .alert: "Open an alert window the user must close (for something they need to act on). Returns when they close it."
         case .listChats: "List the chats: id, title, model, number of messages; the current one is marked."
@@ -79,6 +87,19 @@ enum AppTool: String, CaseIterable, Sendable {
         case .setModel: return object(["model": string("Model id"), "chat_id": chatID], ["model"])
         case .enableMCP, .disableMCP: return object(["name": string("The server's name from _app_list_mcp")], ["name"])
         case .say: return object(["text": string("What to say, as plain words (no Markdown)")], ["text"])
+        case .visualize:
+            return object(["html": string("The page body: markup, <style> and <script>"),
+                           "libraries": .object(["type": .string("array"), "items": .object(["type": .string("string")]),
+                                                 "description": .string("Names of the libraries it uses")]),
+                           "height": .object(["type": .string("number"), "description": .string("Pixels; leave out to fit the content")]),
+                           "title": string("A few words on what it shows")], ["html"])
+        case .installLibrary:
+            return object(["package": string("The npm package (\"d3\", \"@observablehq/plot\")"),
+                           "version": string("A version or range (default: latest)"),
+                           "file": string("A file in the package (default: its entry points)"),
+                           "global": string("The global it defines (\"d3\")"),
+                           "purpose": string("What it draws, for later")], ["package", "purpose"])
+        case .removeLibrary: return object(["name": string("The library's name")], ["name"])
         case .read:
             return object(["path": string("The file or folder"),
                            "offset": .object(["type": .string("integer"), "description": .string("The first line to read, from 1")]),
@@ -242,6 +263,40 @@ enum AppTool: String, CaseIterable, Sendable {
             // In the notch the user may talk over it: the voice goes through the echo canceller.
             let interruptible = chatID == AppSettings.shared.assistantChatID && AppSettings.shared.interruptBySpeaking
             return try await Speaker.shared.speak(words, interruptible: interruptible) ? "Spoken." : "Stopped by the user."
+
+        case .visualize:
+            guard let html = args["html"]?.string, !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw MCPError(message: "An \"html\" body is needed.")
+            }
+            let names = args["libraries"]?.array?.compactMap(\.string) ?? []
+            let libraries = VisualLibraries.shared
+            let unknown = names.filter { libraries.entry($0) == nil }
+            guard unknown.isEmpty else {
+                throw MCPError(message: "Unknown libraries: \(unknown.joined(separator: ", ")). Installed: \(libraries.entries.map(\.name).joined(separator: ", ")).")
+            }
+            let errors = await VisualSandbox.check(html: html, libraries: names.compactMap(libraries.entry))
+            guard !errors.isEmpty else { return "Shown." }
+            return "Shown, but the page reported errors:\n" + errors.prefix(10).joined(separator: "\n")
+                + "\nCall app_visualize again with a fix."
+
+        case .installLibrary:
+            guard let package = text("package") else { throw MCPError(message: "A \"package\" is needed.") }
+            let version = text("version")
+            if version == nil, text("file") == nil, let bundled = try VisualLibraries.shared.restoreBundled(package) {
+                return "\(bundled.name) is available again (bundled, version \(bundled.version))."
+            }
+            try await ActionGate.check(PendingAction(tool: rawValue, summary: "Download \(package) from jsDelivr",
+                                                     detail: "npm package \(package)@\(version ?? "latest") for visualizations (runs only inside the page, without network)",
+                                                     dangerous: false),
+                                       callID: callID, chat: chatID)
+            let entry = try await VisualLibraries.shared.install(package: package, version: version, file: text("file"),
+                                                                 global: text("global"), purpose: text("purpose") ?? package)
+            return "Installed \(entry.name) \(entry.version) (\(entry.files.joined(separator: ", "))). Use it in app_visualize as \"\(entry.name)\"."
+
+        case .removeLibrary:
+            guard let name = text("name") else { throw MCPError(message: "A \"name\" is needed.") }
+            try VisualLibraries.shared.remove(name)
+            return "Removed \(name)."
 
         case .read, .write, .edit:
             guard let raw = args["path"]?.string, !raw.isEmpty else { throw MCPError(message: "A \"path\" is needed.") }

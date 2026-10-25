@@ -52,6 +52,12 @@ struct MessageRow: View {
                 ForEach(message.steps) { step in
                     if !step.text.isEmpty { MarkdownMessage(text: step.text) }
                     if !step.calls.isEmpty { ToolCallsGroup(calls: step.calls) }
+                    ForEach(step.calls.filter { $0.result != nil }) { call in
+                        if let visualization = Visualization(call) {
+                            VisualizationView(visualization, maxHeight: 640)
+                                .frame(maxWidth: 640, alignment: .leading)
+                        }
+                    }
                     if let asking = QuestionCenter.shared.pending[chatID], step.calls.contains(where: { $0.id == asking.callID }) {
                         QuestionCard(chatID: chatID)
                     }

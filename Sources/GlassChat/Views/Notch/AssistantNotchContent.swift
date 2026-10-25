@@ -38,6 +38,9 @@ struct AssistantNotchContent: View {
                         if !calls.isEmpty { ToolChips(calls: calls) }
                         let text = (answer.steps.map(\.text) + [answer.content]).filter { !$0.isEmpty }.joined(separator: "\n\n")
                         if !text.isEmpty { MarkdownMessage(text: text, compact: true) }
+                        if let visualization = calls.filter({ $0.result != nil }).compactMap(Visualization.init).last {
+                            VisualizationView(visualization, maxHeight: 260, dark: true)
+                        }
                     }
                     if QuestionCenter.shared.pending[id] != nil {
                         QuestionCard(chatID: id)
