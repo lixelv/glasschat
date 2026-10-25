@@ -42,6 +42,18 @@ final class AudioEngineHub {
         }
         engine.attach(player)
         engine.connect(player, to: engine.mainMixerNode, format: playerFormat)
+        // Another device (headphones plugged in, AirPods connecting) stops the engine: what records or plays
+        // through it would wait forever.
+        NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { _ in
+            MainActor.assumeIsolated { AudioEngineHub.shared.configurationChanged() }
+        }
+    }
+
+    private func configurationChanged() {
+        guard users > 0, !engine.isRunning else { return }
+        voiceLog.error("audio device changed: recording and speech stopped")
+        VoiceRecorder.shared.cancel()
+        Speaker.shared.stop()
     }
 
     /// Something starts recording or playing; the engine runs until every user released it.

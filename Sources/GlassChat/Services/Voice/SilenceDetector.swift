@@ -37,6 +37,7 @@ struct SilenceDetector {
     private var speechStart: TimeInterval = 0
     private var done = false
     private var lastTime: TimeInterval?
+    private var lastVoice: TimeInterval?
 
     init(_ config: Config) {
         self.config = config
@@ -45,6 +46,17 @@ struct SilenceDetector {
     /// A new pause for the phrase being recorded (it follows the words heard so far).
     mutating func setSilence(_ seconds: TimeInterval) {
         config.silence = seconds
+    }
+
+    /// The phrase may last `seconds` from `time` on (the interruption listener has no limit until the user interrupts).
+    mutating func limitPhrase(_ seconds: TimeInterval, from time: TimeInterval) {
+        speechStart = time
+        config.maxPhrase = seconds
+    }
+
+    /// Voice was heard within the last `seconds` before `time`.
+    func voiceWithin(_ seconds: TimeInterval, at time: TimeInterval) -> Bool {
+        lastVoice.map { time - $0 <= seconds } ?? false
     }
 
     /// `db` in dBFS, `time` in seconds from the start of the recording.
@@ -67,6 +79,7 @@ struct SilenceDetector {
                     speaking = true
                     speechStart = since
                     voiced = time - since
+                    lastVoice = time
                     return .speechStarted
                 }
             } else {
@@ -86,7 +99,10 @@ struct SilenceDetector {
             done = true
             return .phraseEnded
         }
-        if db >= floor + config.endMargin { voiced += dt }
+        if db >= floor + config.endMargin {
+            voiced += dt
+            lastVoice = time
+        }
         if db < floor + config.endMargin {
             let since = belowSince ?? time
             belowSince = since

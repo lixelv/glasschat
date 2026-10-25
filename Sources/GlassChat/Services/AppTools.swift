@@ -227,7 +227,9 @@ enum AppTool: String, CaseIterable, Sendable {
 
         case .say:
             guard let words = text("text") else { throw MCPError(message: "A \"text\" is needed.") }
-            return try await Speaker.shared.speak(words) ? "Spoken." : "Stopped by the user."
+            // In the notch the user may talk over it: the voice goes through the echo canceller.
+            let interruptible = chatID == AppSettings.shared.assistantChatID && AppSettings.shared.interruptBySpeaking
+            return try await Speaker.shared.speak(words, interruptible: interruptible) ? "Spoken." : "Stopped by the user."
 
         case .read, .write, .edit:
             guard let raw = args["path"]?.string, !raw.isEmpty else { throw MCPError(message: "A \"path\" is needed.") }

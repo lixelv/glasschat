@@ -122,6 +122,8 @@ final class AssistantController {
         voiceLog.debug("notch collapsed")
         // A conversation still waiting to listen ends; one with an answer on the way goes on.
         if phase != .answering, phase != .speaking, !questionListening { cycle?.cancel() }
+        interruption?.cancel()
+        interruption = nil
         recorder.cancel()
         session?.cancel()
         session = nil
@@ -255,13 +257,26 @@ final class AssistantController {
                 try? await Task.sleep(for: .milliseconds(100))
             }
             if let interruption {
+                // Still talking as the answer ends: an interruption whose words had not come yet.
+                if !interrupted, recorder.isRecording {
+                    try? await Task.sleep(for: .milliseconds(300))
+                    if !interrupted, recorder.voiceWithin(0.4) { interruptAtEnd() }
+                }
                 if interrupted {
                     // The user spoke over the answer: their phrase is the next message.
-                    guard let phrase = await interruption.value else { return }
-                    pending = phrase
+                    let phrase = await interruption.value
+                    self.interruption = nil
+                    if let phrase {
+                        pending = phrase
+                        continue
+                    }
+                    // Nothing usable was said: listen for it again.
+                    guard isExpanded, !Task.isCancelled, settings.followUpWindow > 0 else { return }
+                    followUp = true
                     continue
                 }
                 interruption.cancel()
+                self.interruption = nil
                 recorder.cancel()
             }
             guard isExpanded, !Task.isCancelled else {
@@ -276,14 +291,26 @@ final class AssistantController {
 
     /// The user started talking over the answer (set by the interruption listener).
     private var interrupted = false
+    /// The interruption listener of the answer being written; folding the notch cancels it.
+    private var interruption: Task<Heard?, Never>?
+    /// What the listener heard, one utterance at a time.
+    private var utterance = BargeIn.Utterance()
+    private var utteranceText = ""
+    /// Where the interrupting phrase starts in the listener's recording (Whisper hears only that part).
+    private var interruptionStart: TimeInterval = 0
 
     /// Listens during an answer for the user talking over it; nil when interrupting is off or not possible.
     private func startInterruptionListener(chat: Chat.ID) -> Task<Heard?, Never>? {
         interrupted = false
-        guard settings.interruptBySpeaking, !hoverTalking, QuestionCenter.shared.pending[chat] == nil else { return nil }
+        utterance = BargeIn.Utterance()
+        utteranceText = ""
+        interruptionStart = 0
+        guard settings.interruptBySpeaking, isExpanded, !hoverTalking, QuestionCenter.shared.pending[chat] == nil else { return nil }
         AudioEngineHub.shared.configure()
         guard AudioEngineHub.shared.echoCancellation else { return nil }
-        return Task { [weak self] in await self?.listenForInterruption(chat) }
+        let task = Task { [weak self] in await self?.listenForInterruption(chat) }
+        interruption = task
+        return task
     }
 
     /// Records with no pause and no time limit until meaningful words come; then it ends at the next pause and
@@ -304,6 +331,8 @@ final class AssistantController {
             var config = SilenceDetector.Config()
             config.silence = .infinity
             config.wait = .infinity
+            // No limit while the answer goes on; it starts when the user interrupts.
+            config.maxPhrase = .infinity
             guard let recording = try await recorder.record(config, onBuffer: { session.append($0) }) else {
                 session.cancel()
                 return nil
@@ -313,7 +342,15 @@ final class AssistantController {
                 try? FileManager.default.removeItem(at: recording.url)
                 return nil
             }
-            return try await transcribe(recording, with: session)
+            // Only the interrupting phrase: Whisper gets its part of the recording, Apple's text loses what came before.
+            if settings.recognitionMode == .whisper {
+                return try await transcribe(VoiceRecorder.trimmed(recording, from: interruptionStart), with: session)
+            }
+            guard let phrase = try await transcribe(recording, with: session) else { return nil }
+            let words = utterance.words(of: phrase.text)
+            guard SpeechText.isWords(words) else { return nil }
+            heard = words
+            return Heard(text: words, audio: nil)
         } catch {
             return nil
         }
@@ -321,20 +358,37 @@ final class AssistantController {
 
     /// Live words during an answer: meaningful ones stop the answer and the voice, and the phrase goes on.
     private func interruptionHeard(_ text: String, chat: Chat.ID) {
+        let now = utterance.update(text, voiced: recorder.voiced, at: recorder.elapsed)
+        utteranceText = now.text
         if interrupted {
-            heard = text
-            followWords(text)
+            heard = now.text
+            followWords(now.text)
             return
         }
-        guard BargeIn.isMeaningful(heard: text, voiced: recorder.voiced, spoken: Speaker.shared.spoken) else { return }
-        voiceLog.debug("barge-in: \(text, privacy: .public)")
-        interrupted = true
+        guard BargeIn.isMeaningful(heard: now.text, voiced: now.voiced, spoken: Speaker.shared.spoken) else { return }
+        voiceLog.debug("barge-in: \(now.text, privacy: .public)")
         Speaker.shared.stop()
         ChatController.shared.stop(chat)
         ApprovalCenter.shared.dismiss(in: chat)
         QuestionCenter.shared.dismiss(in: chat)
+        interruptionStart = max(utterance.start - 1.5, 0)
+        beginInterruptingPhrase(now.text)
+    }
+
+    /// The answer is over while the user talks: what they say is the next phrase.
+    private func interruptAtEnd() {
+        voiceLog.debug("still talking as the answer ends")
+        // Words that came lately are this phrase; with none yet, the last few seconds hold its start.
+        let recent = recorder.elapsed - utterance.start < 4 && !utteranceText.isEmpty
+        interruptionStart = max(recent ? utterance.start - 1.5 : recorder.elapsed - 3, 0)
+        beginInterruptingPhrase(recent ? utteranceText : "")
+    }
+
+    private func beginInterruptingPhrase(_ text: String) {
+        interrupted = true
         heard = text
         phase = .listening(followUp: false)
+        recorder.limitPhrase(SilenceDetector.Config().maxPhrase)
         followWords(text)
     }
 

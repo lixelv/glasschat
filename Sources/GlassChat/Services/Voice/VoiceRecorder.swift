@@ -37,7 +37,8 @@ final class VoiceRecorder {
 
     private var hub: AudioEngineHub { AudioEngineHub.shared }
     private var detector = SilenceDetector(.init())
-    private var elapsed: TimeInterval = 0
+    /// Seconds recorded so far.
+    private(set) var elapsed: TimeInterval = 0
     private var writer: PhraseWriter?
     private var continuation: CheckedContinuation<Recording?, Never>?
 
@@ -96,6 +97,40 @@ final class VoiceRecorder {
     func updateSilence(_ seconds: TimeInterval) {
         guard isRecording else { return }
         detector.setSilence(seconds)
+    }
+
+    /// The phrase may last `seconds` from now on (it had no limit while the assistant answered).
+    func limitPhrase(_ seconds: TimeInterval) {
+        guard isRecording else { return }
+        detector.limitPhrase(seconds, from: elapsed)
+    }
+
+    /// The user's voice came within the last `seconds`.
+    func voiceWithin(_ seconds: TimeInterval) -> Bool {
+        isRecording && detector.voiceWithin(seconds, at: elapsed)
+    }
+
+    /// The part of a recording from `start` seconds on, as a new file (the original is removed).
+    static func trimmed(_ recording: Recording, from start: TimeInterval) -> Recording {
+        guard start > 0, let source = try? AVAudioFile(forReading: recording.url) else { return recording }
+        let rate = source.processingFormat.sampleRate
+        let first = AVAudioFramePosition(start * rate)
+        guard first < source.length,
+              let buffer = AVAudioPCMBuffer(pcmFormat: source.processingFormat, frameCapacity: AVAudioFrameCount(source.length - first))
+        else { return recording }
+        let url = FileManager.default.temporaryDirectory.appending(path: "glasschat-phrase-\(UUID().uuidString).wav")
+        do {
+            source.framePosition = first
+            try source.read(into: buffer)
+            let file = try AVAudioFile(forWriting: url, settings: source.fileFormat.settings,
+                                       commonFormat: source.processingFormat.commonFormat, interleaved: source.processingFormat.isInterleaved)
+            try file.write(from: buffer)
+        } catch {
+            try? FileManager.default.removeItem(at: url)
+            return recording
+        }
+        try? FileManager.default.removeItem(at: recording.url)
+        return Recording(url: url, duration: recording.duration - start, voiced: recording.voiced)
     }
 
     /// Ends the recording now and keeps it, with how much of it was voice (the pointer left the notch).

@@ -16,6 +16,30 @@ extension SelfTests {
             while t < end - 1e-9 { if detector.feed(db, at: t) == .phraseEnded { ended = t }; t += 0.02 }
         }
         expect(ended.map { abs($0 - 2.0) <= 0.03 } == true, "a new pause applies to the phrase being recorded")
+
+        // The interruption listener: no time limit until the user interrupts, then the usual one from there.
+        var unlimited = SilenceDetector.Config()
+        unlimited.silence = .infinity
+        unlimited.wait = .infinity
+        unlimited.maxPhrase = .infinity
+        var listener = SilenceDetector(unlimited)
+        var limitEnded = false
+        var clock = 0.0
+        while clock < 100 { limitEnded = limitEnded || listener.feed(clock < 0.3 ? -70 : -30, at: clock) == .phraseEnded; clock += 0.1 }
+        expect(!limitEnded, "no phrase limit while listening for an interruption")
+        listener.limitPhrase(60, from: clock)
+        while clock < 130 { limitEnded = limitEnded || listener.feed(-30, at: clock) == .phraseEnded; clock += 0.1 }
+        expect(!limitEnded, "the limit counts from the interruption")
+        while clock < 161 { limitEnded = limitEnded || listener.feed(-30, at: clock) == .phraseEnded; clock += 0.1 }
+        expect(limitEnded, "the phrase ends 60 s after the interruption")
+
+        // Voice right now: the user is still talking when the answer ends.
+        var recent = SilenceDetector(unlimited)
+        clock = 0
+        while clock < 2 { _ = recent.feed(clock < 0.3 ? -70 : -30, at: clock); clock += 0.1 }
+        expect(recent.voiceWithin(0.7, at: clock), "voice just now")
+        while clock < 3 { _ = recent.feed(-70, at: clock); clock += 0.1 }
+        expect(!recent.voiceWithin(0.7, at: clock), "no voice for a second")
     }
 }
 #endif

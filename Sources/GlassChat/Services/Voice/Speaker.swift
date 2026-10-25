@@ -22,14 +22,22 @@ final class Speaker {
 
     private var synthesizer: AVSpeechSynthesizer?
     private var playback: SynthPlayback?
+    /// Where the voice plays: the shared engine, whose echo canceller then hears it (the microphone is on too),
+    /// or an engine of its own that only plays.
+    private enum Output { case shared, own(AVAudioEngine) }
+    private var output: Output?
+    private var sharedOutput = false
     private var done: ResumeOnce<Bool>?
 
     private init() {}
 
     /// Returns true when the text was said to the end, false when it was stopped.
+    /// `interruptible`: the notch assistant may be interrupted while it speaks, so the voice goes through the
+    /// shared engine with the microphone; otherwise only the speakers are used.
     @discardableResult
-    func speak(_ text: String, id: String? = nil) async throws -> Bool {
+    func speak(_ text: String, id: String? = nil, interruptible: Bool = false) async throws -> Bool {
         stop()
+        sharedOutput = interruptible
         spoken += " " + text
         let once = ResumeOnce<Bool>()
         done = once
@@ -62,10 +70,13 @@ final class Speaker {
     private func finishUp() {
         synthesizer?.stopSpeaking(at: .immediate)
         synthesizer = nil
-        if let playback {
-            playback.stop()
-            AudioEngineHub.shared.release()
+        playback?.stop()
+        switch output {
+        case .shared?: AudioEngineHub.shared.release()
+        case .own(let engine)?: engine.stop()
+        case nil: break
         }
+        output = nil
         playback = nil
         done = nil
         isSpeaking = false
@@ -103,15 +114,31 @@ final class Speaker {
         return true
     }
 
-    /// Plays through the shared engine, so the echo canceller hears the assistant's own voice.
+    /// Plays through the shared engine (the echo canceller hears the assistant's own voice) or one of its own.
     private func makePlayback(_ once: ResumeOnce<Bool>) -> SynthPlayback? {
-        let hub = AudioEngineHub.shared
-        do { try hub.acquire() } catch {
+        let player: AVAudioPlayerNode
+        let format: AVAudioFormat
+        do {
+            if sharedOutput {
+                let hub = AudioEngineHub.shared
+                try hub.acquire()
+                output = .shared
+                (player, format) = (hub.player, hub.playerFormat)
+            } else {
+                let engine = AVAudioEngine()
+                (player, format) = (AVAudioPlayerNode(), AudioEngineHub.shared.playerFormat)
+                engine.attach(player)
+                engine.connect(player, to: engine.mainMixerNode, format: format)
+                try engine.start()
+                player.play()
+                output = .own(engine)
+            }
+        } catch {
             voiceLog.error("audio engine failed: \(error.localizedDescription, privacy: .public)")
             return nil
         }
         let playback = SynthPlayback(
-            player: hub.player, format: hub.playerFormat,
+            player: player, format: format,
             onLevel: { level in Task { @MainActor in Speaker.shared.setLevel(level, if: once) } },
             onDone: { once.resume(true) })
         self.playback = playback
@@ -196,9 +223,8 @@ private final class SynthPlayback: @unchecked Sendable {
         lock.lock()
         finished = true
         lock.unlock()
-        // The shared player keeps running; what was scheduled for this text is dropped.
+        // What was scheduled for this text is dropped; the next text starts the player again (`acquire`).
         player.stop()
-        player.play()
     }
 
     /// Under the lock.
