@@ -69,6 +69,9 @@ private struct VisualWebView: NSViewRepresentable {
     final class Coordinator: NSObject, WKScriptMessageHandler {
         var height: Binding<CGFloat>
         weak var container: NSView?
+        /// Where the page is scrolled to and how tall it is, for the wheel.
+        private var scrollY: CGFloat = 0
+        private var pageHeight: CGFloat = 0
         private var webView: WKWebView?
         private var shown: String?
         private let navigation = VisualSandbox.Navigation()
@@ -83,7 +86,8 @@ private struct VisualWebView: NSViewRepresentable {
                 let configuration = await VisualSandbox.configuration(messages: self)
                 guard let container, shown == key else { return }
                 webView?.removeFromSuperview()
-                let view = WKWebView(frame: container.bounds, configuration: configuration)
+                let view = PassingWebView(frame: container.bounds, configuration: configuration)
+                view.scrollState = { [weak self] in (self?.scrollY ?? 0, self?.pageHeight ?? 0) }
                 view.autoresizingMask = [.width, .height]
                 view.setValue(false, forKey: "drawsBackground")
                 if dark { view.appearance = NSAppearance(named: .darkAqua) }
@@ -97,11 +101,34 @@ private struct VisualWebView: NSViewRepresentable {
         }
 
         func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-            if message.name == "height", let value = message.body as? Double, value > 0 {
-                height.wrappedValue = CGFloat(value)
-            } else if message.name == "height", let value = message.body as? Int, value > 0 {
-                height.wrappedValue = CGFloat(value)
+            let value = (message.body as? NSNumber).map { CGFloat($0.doubleValue) }
+            switch message.name {
+            case "height":
+                guard let value, value > 0 else { return }
+                pageHeight = value
+                height.wrappedValue = value
+            case "scroll":
+                scrollY = value ?? 0
+            default:
+                break
             }
         }
+    }
+}
+
+/// Hands the wheel to the chat when the page cannot scroll that way, for the whole gesture
+/// (a page in the chat must not trap the scrolling).
+private final class PassingWebView: WKWebView {
+    var scrollState: () -> (y: CGFloat, height: CGFloat) = { (0, 0) }
+    private var passing = false
+
+    override func scrollWheel(with event: NSEvent) {
+        let starts = event.phase.contains(.began) || (event.phase.isEmpty && event.momentumPhase.isEmpty)
+        if starts {
+            let state = scrollState()
+            passing = VisualScroll.passesOn(deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY, scrollY: state.y,
+                                            contentHeight: state.height, frameHeight: bounds.height)
+        }
+        if passing { nextResponder?.scrollWheel(with: event) } else { super.scrollWheel(with: event) }
     }
 }

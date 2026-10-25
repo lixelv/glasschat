@@ -19,7 +19,7 @@ enum VisualSandbox {
         configuration.setURLSchemeHandler(SchemeHandler(), forURLScheme: VisualPage.scheme)
         configuration.preferences.javaScriptCanOpenWindowsAutomatically = false
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
-        for name in ["height", "error", "ready"] {
+        for name in ["height", "scroll", "error", "ready"] {
             configuration.userContentController.add(WeakHandler(handler), name: name)
         }
         if compiled == nil {

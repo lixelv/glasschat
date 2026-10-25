@@ -32,12 +32,19 @@ struct ChatView: View {
                     ScrollView {
                         // Messages start at the top; the column is at least as tall as the view,
                         // so the ScrollView never has bare space of its own (it lit up under the pointer).
-                        // A plain VStack: a lazy one re-estimated the heights of rows while text streamed in,
+                        // Older messages are lazy (only those on screen are made: a long chat scrolls smoothly);
+                        // the last ones are not: a lazy row re-estimated its height while text streamed in,
                         // and the list jumped.
+                        let (settled, recent) = Self.split(messages.map(\.id), recent: 2)
+                        let byID = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
                         VStack(spacing: 18) {
-                            ForEach(messages) { message in
-                                MessageRow(message: message, chatID: chatID)
-                                    .id(message.id)
+                            LazyVStack(spacing: 18) {
+                                ForEach(settled, id: \.self) { id in
+                                    if let message = byID[id] { MessageRow(message: message, chatID: chatID).id(id) }
+                                }
+                            }
+                            ForEach(recent, id: \.self) { id in
+                                if let message = byID[id] { MessageRow(message: message, chatID: chatID).id(id) }
                             }
                             Color.clear.frame(height: 1).id(Self.bottomID)
                         }
@@ -123,6 +130,12 @@ struct ChatView: View {
     }
 
     /// Changes whenever the last answer grows: its text, a step, a tool result.
+    /// The messages laid out lazily and the last `recent` ones laid out always.
+    static func split<ID>(_ ids: [ID], recent: Int) -> (settled: [ID], recent: [ID]) {
+        let cut = max(ids.count - recent, 0)
+        return (Array(ids[..<cut]), Array(ids[cut...]))
+    }
+
     private static func streamKey(_ message: Message?) -> Int {
         guard let message else { return 0 }
         return message.content.count + message.steps.reduce(0) { $0 + $1.text.count + $1.calls.filter { $0.result != nil }.count + 1 }

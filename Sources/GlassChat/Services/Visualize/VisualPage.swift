@@ -26,13 +26,15 @@ enum VisualPage {
         return "<!doctype html>\n<html><head>\n" + head.joined(separator: "\n") + "\n</head><body>" + body + "</body></html>"
     }
 
-    /// Posts `height` whenever the page's size changes, `error` for every uncaught error, and `ready` once loaded.
+    /// Posts `height` whenever the page's size changes, `scroll` as it scrolls, `error` for every uncaught error,
+    /// and `ready` once loaded.
     private static let report = """
     (function () {
       const post = (name, value) => { try { webkit.messageHandlers[name].postMessage(value) } catch (e) {} };
       window.addEventListener('error', e => post('error', String(e.message || e) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
       window.addEventListener('unhandledrejection', e => post('error', 'Unhandled promise rejection: ' + String(e.reason)));
       const size = () => post('height', Math.ceil(document.documentElement.scrollHeight));
+      window.addEventListener('scroll', () => post('scroll', window.scrollY), { passive: true });
       window.addEventListener('load', () => {
         size();
         new ResizeObserver(size).observe(document.body);

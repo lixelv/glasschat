@@ -58,6 +58,20 @@ extension SelfTests {
         expect(shown?.html == "<p>Hi</p>" && shown?.libraries == ["chart.js"] && shown?.height == 200, "a visualize call is drawn")
         expect(Visualization(ToolCall(id: "c2", name: "glasschat__app_say", arguments: #"{"text": "Hi"}"#)) == nil, "other calls are not")
         expect(Visualization(ToolCall(id: "c3", name: "glasschat__app_visualize", arguments: "{")) == nil, "half-written arguments are not")
+
+        // The wheel scrolls a page while it can; at its edge (or when it fits) the chat scrolls.
+        expect(VisualScroll.passesOn(deltaX: 0, deltaY: -5, scrollY: 0, contentHeight: 300, frameHeight: 300), "a page that fits: the chat scrolls")
+        expect(!VisualScroll.passesOn(deltaX: 0, deltaY: -5, scrollY: 0, contentHeight: 900, frameHeight: 640), "a tall page scrolls down first")
+        expect(VisualScroll.passesOn(deltaX: 0, deltaY: -5, scrollY: 260, contentHeight: 900, frameHeight: 640), "at its end the chat goes on")
+        expect(VisualScroll.passesOn(deltaX: 0, deltaY: 5, scrollY: 0, contentHeight: 900, frameHeight: 640), "at its top the chat goes up")
+        expect(!VisualScroll.passesOn(deltaX: 0, deltaY: 5, scrollY: 100, contentHeight: 900, frameHeight: 640), "in its middle it scrolls up")
+        expect(!VisualScroll.passesOn(deltaX: -8, deltaY: 1, scrollY: 0, contentHeight: 300, frameHeight: 300), "sideways is the page's")
+
+        // A long chat: only the last messages are laid out eagerly (they change while streaming).
+        let ids = (0..<5).map { _ in UUID() }
+        let (settled, recent) = ChatView.split(ids, recent: 2)
+        expect(settled == Array(ids.prefix(3)) && recent == Array(ids.suffix(2)), "older messages are lazy, the last two are not")
+        expect(ChatView.split(Array(ids.prefix(1)), recent: 2).settled.isEmpty, "a short chat has nothing lazy")
     }
 }
 #endif
