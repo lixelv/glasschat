@@ -8,6 +8,8 @@ struct ChatView: View {
     @State private var attachments: [Attachment] = []
     @Environment(DropZone.self) private var dropZone
     @State private var composerHeight: CGFloat = 46
+    /// The height of everything under the messages (composer, model row): the messages fade out above it.
+    @State private var insetHeight: CGFloat = 0
     @State private var showPrompt = false
     @State private var viewportHeight: CGFloat = 0
     /// Whether the list is scrolled to its end: only then does a streaming answer keep it there.
@@ -74,6 +76,16 @@ struct ChatView: View {
                 }
                 .scrollContentBackground(.hidden)
                 .scrollEdgeEffectStyle(.soft, for: .top)
+                // Web pages (visualizations) are drawn above the composer's glass, not behind it: the messages
+                // fade out where the composer starts instead of running under it.
+                .mask {
+                    VStack(spacing: 0) {
+                        Rectangle()
+                        LinearGradient(colors: [.black, .clear], startPoint: .top, endPoint: .bottom).frame(height: 16)
+                        Color.clear.frame(height: max(insetHeight - 16, 0))
+                    }
+                    .ignoresSafeArea()
+                }
             }
         }
         .safeAreaInset(edge: .bottom, spacing: 0) {
@@ -110,6 +122,7 @@ struct ChatView: View {
             .frame(maxWidth: 820)
             .padding(.horizontal, 24)
             .padding(.bottom, 16)
+            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { insetHeight = $0 }
         }
         .onAppear { dropZone.receive = { attachments += $0 } }
         .background(Palette.content)
