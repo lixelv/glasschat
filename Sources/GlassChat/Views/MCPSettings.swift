@@ -5,6 +5,14 @@ struct MCPSettings: View {
     @State private var text = MCPManager.shared.configText
     @State private var error: String?
     private var mcp = MCPManager.shared
+    private var settings = AppSettings.shared
+
+    private func onDemand(_ id: String) -> Binding<Bool> {
+        Binding(
+            get: { settings.onDemandServers.contains(id) },
+            set: { on in if on { settings.onDemandServers.insert(id) } else { settings.onDemandServers.remove(id) } }
+        )
+    }
 
     private var changed: Bool { text != mcp.configText }
 
@@ -50,6 +58,10 @@ struct MCPSettings: View {
                                 Text(server.name).font(.callout.weight(.medium))
                                 MCPStatusLine(server: server)
                                 Spacer()
+                                Toggle("On demand", isOn: onDemand(server.id))
+                                    .toggleStyle(.checkbox)
+                                    .font(.caption)
+                                    .help("Its tools are not sent with every request; the model finds them with its tool search.")
                                 Button("Reconnect", systemImage: "arrow.clockwise") { mcp.reconnect(server.id) }
                                     .labelStyle(.iconOnly)
                                     .buttonStyle(.borderless)

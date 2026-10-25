@@ -116,6 +116,7 @@ struct Composer: View {
 private struct ToolsButton: View {
     let chatID: Chat.ID
     @State private var open = false
+    @State private var showModules = false
     @Environment(\.openSettings) private var openSettings
     private var mcp = MCPManager.shared
     private var settings = AppSettings.shared
@@ -142,22 +143,29 @@ private struct ToolsButton: View {
         }
         .buttonStyle(.plain)
         .help("Tools")
+        .sheet(isPresented: $showModules) { AppToolsSheet() }
         .popover(isPresented: $open, arrowEdge: .top) {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Tools").font(.headline)
-                Text("Switches are the same in every chat. Tools switched off can still be found by the model's tool search.")
+                Text("Switches are the same in every chat. Tools switched off can still be found by the model's search of every tool.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Toggle(isOn: binding(AppTool.key)) {
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text("App")
-                        Text("Built in: notifications, alerts, chats, models, MCP servers and their registry")
-                            .font(.caption).foregroundStyle(.secondary)
+                Button { open = false; showModules = true } label: {
+                    HStack {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("App")
+                            let on = AppModule.switchable.filter { !disabled.contains($0.key) }.count
+                            Text("\(on) of \(AppModule.switchable.count) modules on")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right").foregroundStyle(.secondary)
                     }
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .contentShape(Rectangle())
                 }
-                .toggleStyle(.switch)
+                .buttonStyle(.plain)
+                .help("Choose which built-in tools are on")
                 ForEach(mcp.servers.filter(\.enabled)) { server in
                     Toggle(isOn: binding(server.id)) {
                         VStack(alignment: .leading, spacing: 1) {
