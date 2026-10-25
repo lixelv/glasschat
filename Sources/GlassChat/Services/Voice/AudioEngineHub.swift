@@ -27,6 +27,10 @@ final class AudioEngineHub {
     func configure() {
         guard !configured else { return }
         configured = true
+        // The output has to exist before voice processing is on: made after, it has no format and the engine fails
+        // to start (-10875).
+        _ = engine.outputNode
+        _ = engine.mainMixerNode
         do {
             try engine.inputNode.setVoiceProcessingEnabled(true)
             // Voice processing turns other apps down (music, calls); keep that to the least.
@@ -47,7 +51,19 @@ final class AudioEngineHub {
         users += 1
         if !engine.isRunning {
             engine.prepare()
-            do { try engine.start() } catch { users -= 1; throw error }
+            do {
+                try engine.start()
+            } catch where echoCancellation {
+                // Some devices refuse voice processing only when it starts: go on without it (no interrupting).
+                voiceLog.error("engine failed with voice processing, starting without: \(error.localizedDescription, privacy: .public)")
+                try? engine.inputNode.setVoiceProcessingEnabled(false)
+                echoCancellation = false
+                engine.prepare()
+                do { try engine.start() } catch { users -= 1; throw error }
+            } catch {
+                users -= 1
+                throw error
+            }
         }
         if !player.isPlaying { player.play() }
     }
@@ -63,5 +79,15 @@ final class AudioEngineHub {
             self.player.stop()
             self.engine.stop()
         }
+    }
+}
+
+extension AVAudioConverter {
+    /// A converter for microphone buffers. The echo-cancelled input has 9 channels with the voice in the first; to
+    /// mono the converter on its own maps none of them and writes silence, so the first is taken.
+    static func microphone(_ input: AVAudioFormat, to output: AVAudioFormat) -> AVAudioConverter? {
+        let converter = AVAudioConverter(from: input, to: output)
+        if input.channelCount > 1, output.channelCount == 1 { converter?.channelMap = [0] }
+        return converter
     }
 }

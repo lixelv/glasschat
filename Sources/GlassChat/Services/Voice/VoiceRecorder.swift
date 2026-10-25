@@ -63,19 +63,21 @@ final class VoiceRecorder {
     func record(_ config: SilenceDetector.Config, onBuffer: @escaping @Sendable (AVAudioPCMBuffer) -> Void) async throws -> Recording? {
         if isRecording { voiceLog.debug("a new recording replaces one still running") }
         end(nil)
-        let format = try inputFormat()
-        let url = FileManager.default.temporaryDirectory.appending(path: "glasschat-phrase-\(UUID().uuidString).wav")
+        // Started first: the input's format is only settled once the engine runs (voice processing may be dropped).
+        do { try hub.acquire() } catch { throw VoiceError.engine(error.localizedDescription) }
+        let format: AVAudioFormat
         let writer: PhraseWriter
-        do { writer = try PhraseWriter(url: url, input: format, onBuffer: onBuffer) }
-        catch { throw VoiceError.engine(error.localizedDescription) }
+        do {
+            format = try inputFormat()
+            let url = FileManager.default.temporaryDirectory.appending(path: "glasschat-phrase-\(UUID().uuidString).wav")
+            do { writer = try PhraseWriter(url: url, input: format, onBuffer: onBuffer) }
+            catch { throw VoiceError.engine(error.localizedDescription) }
+        } catch {
+            hub.release()
+            throw error
+        }
         detector = SilenceDetector(config)
         hub.engine.inputNode.installTap(onBus: 0, bufferSize: 1024, format: format, block: Self.tap(writer, recorder: self))
-        do {
-            try hub.acquire()
-        } catch {
-            hub.engine.inputNode.removeTap(onBus: 0)
-            throw VoiceError.engine(error.localizedDescription)
-        }
         self.writer = writer
         isRecording = true
         return await withTaskCancellationHandler {
@@ -168,7 +170,7 @@ private final class PhraseWriter: @unchecked Sendable {
         let file = try AVAudioFile(forWriting: url, settings: settings, commonFormat: .pcmFormatInt16, interleaved: true)
         self.file = file
         output = file.processingFormat
-        converter = AVAudioConverter(from: input, to: output)
+        converter = AVAudioConverter.microphone(input, to: output)
     }
 
     /// The level in dBFS and the time from the start, after the buffer.

@@ -278,7 +278,7 @@ final class AppleTranscription: TranscriptionSession {
                 return
             }
             if converter == nil || converter?.inputFormat != buffer.format {
-                converter = AVAudioConverter(from: buffer.format, to: format)
+                converter = AVAudioConverter.microphone(buffer.format, to: format)
             }
             guard let converter else { return }
             let capacity = AVAudioFrameCount(Double(buffer.frameLength) * format.sampleRate / buffer.format.sampleRate) + 32
