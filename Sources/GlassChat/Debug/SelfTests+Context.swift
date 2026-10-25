@@ -20,6 +20,9 @@ extension SelfTests {
         expect(AssistantPrompt.stored(nil) == AssistantPrompt.standard && AssistantPrompt.stored("") == AssistantPrompt.standard,
                "an empty saved prompt becomes the real text")
         expect(AssistantPrompt.stored("Mine") == "Mine", "a written prompt is kept")
+        expect(AssistantPrompt.previous.allSatisfy { AssistantPrompt.stored($0) == AssistantPrompt.standard },
+               "a former standard prompt becomes the current one")
+        expect(!AssistantPrompt.standard.contains("shortest"), "the standard prompt does not ask for the shortest answer")
     }
 }
 #endif
