@@ -56,7 +56,8 @@ final class ChatController {
         if isAssistant {
             turns.append(.object(["role": .string("system"), "content": .string(AssistantPrompt.effective(settings.assistantPrompt))]))
         }
-        if let note = missingCommandNote(chat) {
+        let note = missingCommandNote(chat)
+        if let note {
             turns.append(.object(["role": .string("system"), "content": .string(note)]))
         }
         let history = store.chat(id)!.messages.filter { $0.id != assistant.id }
@@ -68,6 +69,8 @@ final class ChatController {
         let model = chat.model.isEmpty ? settings.defaultModel : chat.model
         streaming.insert(id)
         let found = FoundTools()
+        // The note asks for the alert window, a hidden tool: it is offered without a search.
+        if note != nil { found.names.insert(MCPManager.registryPrefix + "__" + AppTool.alert.rawValue) }
         tasks[id] = Task {
             do {
                 for _ in 0..<Self.maxToolRounds {
@@ -118,7 +121,9 @@ final class ChatController {
                             guard let function = functions[call.name] else { return ("Unknown tool \(call.name).", true) }
                             let (text, isError): (String, Bool)
                             if case .search = function.target {
-                                (text, isError) = await Self.searchTools(call.arguments, found: found)
+                                (text, isError) = await Self.searchTools(call.arguments, scope: .hidden, found: found)
+                            } else if case .searchAll = function.target {
+                                (text, isError) = await Self.searchTools(call.arguments, scope: .all, found: found)
                             } else if case .app(let tool) = function.target {
                                 let args = call.arguments.trimmingCharacters(in: .whitespaces).isEmpty ? .object([:]) : JSONValue.parse(call.arguments)
                                 (text, isError) = args == nil ? ("The arguments are not valid JSON.", true)
@@ -180,13 +185,15 @@ final class ChatController {
         }
     }
 
-    /// Runs `search_tools`: ranks every tool but the search, and offers the best ones for the rest of the answer.
-    private static func searchTools(_ arguments: String, found: FoundTools) async -> (String, Bool) {
+    /// Runs `search_tools` (hidden tools) or `search_all_tools` (every tool) and offers the best ones for the rest
+    /// of the answer.
+    private static func searchTools(_ arguments: String, scope: ToolCatalog.Scope, found: FoundTools) async -> (String, Bool) {
         guard let query = JSONValue.parse(arguments)?["query"]?.string, !query.isEmpty else {
             return ("A \"query\" is needed.", true)
         }
-        let all = MCPManager.shared.allFunctions()
-        let candidates = all.filter { $0.value.group != nil }.mapValues(\.summary)
+        let settings = AppSettings.shared
+        let candidates = ToolCatalog.candidates(MCPManager.shared.allFunctions(), scope: scope,
+                                                disabled: settings.disabledTools, onDemand: settings.onDemandServers)
         do {
             let hits = try await ToolSearch.search(query, among: candidates)
             guard !hits.isEmpty else {
@@ -197,8 +204,9 @@ final class ChatController {
                     groups[String(summary.prefix { $0 != ":" }), default: []].append(name)
                 }
                 let list = groups.keys.sorted().map { "\($0): \(groups[$0]!.sorted().joined(separator: ", "))" }
-                return ("No tool matched \"\(query)\" by its words. All tools, by server (search again with an exact name, or in English):\n"
-                        + list.joined(separator: "\n"), false)
+                let more = scope == .hidden ? " If none of them fits, use search_all_tools." : ""
+                return ("No tool matched \"\(query)\" by its words. The tools searched, by server (search again with an exact name, or in English):\n"
+                        + list.joined(separator: "\n") + more, false)
             }
             let active = MCPManager.shared.functions(disabled: AppSettings.shared.disabledTools, found: found.names)
             var lines: [String] = []

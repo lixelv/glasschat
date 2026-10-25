@@ -26,6 +26,30 @@ extension SelfTests {
         expect(all["glasschat___app_notify"] != nil && all["glasschat___app_alert"] != nil, "notify and alert are hidden")
         let ask = (try? JSONEncoder().encode(all["glasschat__app_ask_user"]!.definition).count) ?? .max
         expect(ask <= 600, "app_ask_user is short (\(ask) bytes)")
+
+        // The two searches: search_tools among the hidden tools of what is on, search_all_tools among every tool.
+        func function(_ group: String?) -> MCPManager.Function {
+            MCPManager.Function(definition: .null, target: .search, group: group, summary: "s")
+        }
+        let fixture: [String: MCPManager.Function] = [
+            "glasschat__search_tools": function(nil),
+            "glasschat__app_read": function(AppModule.files.key),
+            "glasschat___app_list_chats": function(AppModule.chats.key),
+            "glasschat___app_set_model": function(AppModule.models.key),
+            "ddg__search": function("ddg-id"),
+            "gh__issues": function("gh-id"),
+        ]
+        let off: Set<String> = [AppModule.models.key]
+        let demand: Set<String> = ["ddg-id"]
+        expect(Set(ToolCatalog.candidates(fixture, scope: .hidden, disabled: off, onDemand: demand).keys)
+               == ["glasschat___app_list_chats", "ddg__search"], "search_tools: hidden tools and on-demand servers that are on")
+        expect(Set(ToolCatalog.candidates(fixture, scope: .all, disabled: off, onDemand: demand).keys)
+               == Set(fixture.keys).subtracting(["glasschat__search_tools"]), "search_all_tools: every tool but the searches")
+        let offeredNow = ToolCatalog.offered(fixture, disabled: off, found: [], onDemand: demand)
+        expect(Set(offeredNow.keys) == ["glasschat__search_tools", "glasschat__app_read", "gh__issues"],
+               "offered: visible tools of what is on")
+        expect(ToolCatalog.offered(fixture, disabled: off, found: ["ddg__search", "glasschat___app_set_model"], onDemand: demand).count == 5,
+               "found tools are offered, switched off or on demand")
     }
 }
 #endif

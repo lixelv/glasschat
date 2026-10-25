@@ -347,13 +347,10 @@ final class MCPManager {
         return result
     }
 
-    /// What the model is offered: the search, the groups not switched off, and the tools a search found.
-    func functions(disabled: Set<String>, found: Set<String> = []) -> [String: Function] {
-        allFunctions().filter { name, function in
-            if HiddenTools.isHidden(name), !found.contains(name) { return false }
-            guard let group = function.group else { return true }
-            return !disabled.contains(group) || found.contains(name)
-        }
+    /// What the model is offered (`ToolCatalog.offered`).
+    func functions(disabled: Set<String>, found: Set<String> = [],
+                   onDemand: Set<String> = AppSettings.shared.onDemandServers) -> [String: Function] {
+        ToolCatalog.offered(allFunctions(), disabled: disabled, found: found, onDemand: onDemand)
     }
 
     private static func function(_ name: String, _ description: String, _ parameters: JSONValue) -> JSONValue {
