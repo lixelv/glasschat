@@ -7,7 +7,11 @@ cd "$(dirname "$0")/.."
 SDK=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
 swift build -c release --sdk "$SDK"
 BIN="$(swift build -c release --sdk "$SDK" --show-bin-path)"
-APP="build/GlassChat.app"
+# Assembled and signed outside the repository: a synced folder (iCloud Drive, File Provider) puts Finder
+# information back on the .bundle folders, and codesign refuses them.
+STAGE="$(mktemp -d)"
+trap 'rm -rf "$STAGE"' EXIT
+APP="$STAGE/GlassChat.app"
 
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
@@ -16,14 +20,17 @@ cp Resources/Info.plist "$APP/Contents/Info.plist"
 [[ -f Resources/AppIcon.icns ]] && cp Resources/AppIcon.icns "$APP/Contents/Resources/"
 cp Resources/AppIcon-Light.png Resources/AppIcon-Dark.png "$APP/Contents/Resources/" 2>/dev/null || true
 for b in "$BIN"/*.bundle(N); do cp -R "$b" "$APP/Contents/Resources/"; done
-# Extended attributes from the dependencies' bundles (quarantine, Finder info) make codesign refuse.
 xattr -cr "$APP"
 codesign --force --deep --sign - "$APP"
+# A copy for scripts/dmg-settings.py.
+rm -rf build/GlassChat.app
+mkdir -p build
+ditto --norsrc --noextattr "$APP" build/GlassChat.app
 
 mkdir -p ~/Applications
 pkill -x GlassChat 2>/dev/null || true
 rm -rf ~/Applications/GlassChat.app
-ditto "$APP" ~/Applications/GlassChat.app
+ditto --norsrc --noextattr "$APP" ~/Applications/GlassChat.app
 echo "Installed ~/Applications/GlassChat.app"
 [[ "${1:-}" == "--open" ]] && open ~/Applications/GlassChat.app
 exit 0
