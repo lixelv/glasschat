@@ -25,7 +25,7 @@ struct SilenceDetector {
     /// (that recognisers turn into "Thank you." or ".").
     static let minimumVoiced: TimeInterval = 0.5
 
-    private let config: Config
+    private var config: Config
     private(set) var floor = -50.0
     private(set) var speaking = false
     /// Seconds of the phrase above the silence level.
@@ -40,6 +40,11 @@ struct SilenceDetector {
 
     init(_ config: Config) {
         self.config = config
+    }
+
+    /// A new pause for the phrase being recorded (it follows the words heard so far).
+    mutating func setSilence(_ seconds: TimeInterval) {
+        config.silence = seconds
     }
 
     /// `db` in dBFS, `time` in seconds from the start of the recording.

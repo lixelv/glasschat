@@ -54,12 +54,12 @@ struct AssistantSettings: View {
                             .tag(locale.identifier)
                     }
                 }
-                NumberField("Pause that ends a phrase", value: $settings.silencePause, range: 0.5...5, step: 0.1, unit: "s")
+                NumberField("Pause that ends a phrase", value: $settings.silencePause, range: 0.3...3, step: 0.1, unit: "s")
                 IntField("Messages sent to the model", value: $settings.assistantContextLimit, range: 0...200)
             } header: {
                 Text("Listening")
             } footer: {
-                footer("System Languages: Apple listens in each language of System Settings (up to three) and keeps the surest. Messages 0: the whole chat.")
+                footer("The pause is shorter when your words already form a sentence, longer when they are plainly unfinished. System Languages: Apple listens in each language of System Settings (up to three). Messages 0: the whole chat.")
             }
 
             Section {

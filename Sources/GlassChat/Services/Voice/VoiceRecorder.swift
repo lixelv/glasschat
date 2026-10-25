@@ -87,6 +87,12 @@ final class VoiceRecorder {
         }
     }
 
+    /// Changes the pause that ends the phrase being recorded.
+    func updateSilence(_ seconds: TimeInterval) {
+        guard isRecording else { return }
+        detector.setSilence(seconds)
+    }
+
     /// Ends the recording now and keeps it, with how much of it was voice (the pointer left the notch).
     func finish() {
         guard isRecording, let writer else { return }

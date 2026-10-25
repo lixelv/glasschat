@@ -68,7 +68,9 @@ final class Speaker {
         guard VoiceModels.shared.speech == .ready, let synthesizer = try? VoiceModels.shared.synthesizer() else { return false }
         let voice = Voice(rawValue: AppSettings.shared.supertonicVoice) ?? .female1
         let language = SupertonicLanguage.language(for: text)
-        guard let audio = try? await synthesizer.synthesize(text, in: language, with: voice), !audio.samples.isEmpty,
+        // Short replies (app_say) start sooner with fewer synthesis steps.
+        let options = SynthesisOptions(quality: text.count <= 200 ? .fast : .balanced)
+        guard let audio = try? await synthesizer.synthesize(text, in: language, with: voice, options: options), !audio.samples.isEmpty,
               let format = AVAudioFormat(standardFormatWithSampleRate: Double(audio.sampleRate), channels: 1) else {
             voiceLog.error("Supertonic failed; the macOS voice speaks")
             return false

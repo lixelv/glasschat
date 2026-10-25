@@ -287,6 +287,11 @@ final class AssistantController {
         let audio: Attachment?
     }
 
+    /// The pause that ends the phrase follows the words heard so far.
+    private func followWords(_ text: String) {
+        recorder.updateSilence(PhrasePause.seconds(for: text, base: settings.silencePause))
+    }
+
     /// The text of a recorded phrase (and the recording itself with "Audio to the Model"); nil without words.
     private func transcribe(_ recording: Recording, with session: any TranscriptionSession) async throws -> Heard? {
         phase = .transcribing
@@ -369,7 +374,11 @@ final class AssistantController {
                 heard = ""
                 let session = try await Transcription.start(
                     inputFormat: format,
-                    onPartial: { [weak self] text in voiceLog.debug("partial: \(text, privacy: .public)"); self?.heard = text },
+                    onPartial: { [weak self] text in
+                        voiceLog.debug("partial: \(text, privacy: .public)")
+                        self?.heard = text
+                        self?.followWords(text)
+                    },
                     onProgress: { [weak self] progress in self?.downloadProgress = progress })
                 guard !Task.isCancelled else {
                     session.cancel()

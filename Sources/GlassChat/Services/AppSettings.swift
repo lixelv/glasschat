@@ -87,7 +87,7 @@ final class AppSettings {
         default: assistantShortcut = .standard
         }
         transcriptionLanguage = defaults.string(forKey: "transcriptionLanguage") ?? ""
-        silencePause = defaults.object(forKey: "silencePause") as? Double ?? 1.5
+        silencePause = defaults.object(forKey: "silencePause") as? Double ?? 0.7
         followUpWindow = defaults.object(forKey: "followUpWindow") as? Double ?? 15
         speechWait = defaults.object(forKey: "speechWait") as? Double ?? 8
         assistantContextLimit = defaults.object(forKey: "assistantContextLimit") as? Int ?? 16
