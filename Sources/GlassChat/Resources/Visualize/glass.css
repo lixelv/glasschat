@@ -1,0 +1,26 @@
+/* GlassChat's look for visualizations: system font, light and dark, transparent background. */
+:root {
+  color-scheme: light dark;
+  --fg: #1d1d1f; --muted: #6e6e73; --line: rgba(0, 0, 0, .1); --card: rgba(0, 0, 0, .04);
+  --accent: #0a84ff; --green: #30d158; --red: #ff453a; --orange: #ff9f0a; --yellow: #ffd60a; --purple: #bf5af2; --teal: #40c8e0;
+  font: 13px/1.45 -apple-system, system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --fg: #f5f5f7; --muted: #a1a1a6; --line: rgba(255, 255, 255, .12); --card: rgba(255, 255, 255, .06); }
+}
+html, body { margin: 0; background: transparent; color: var(--fg); }
+body { padding: 4px 2px; }
+h1, h2, h3 { margin: 0 0 8px; font-weight: 600; }
+h1 { font-size: 18px; } h2 { font-size: 15px; } h3 { font-size: 13px; }
+.card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px; }
+.row { display: flex; gap: 12px; align-items: center; }
+.grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.stat { font-size: 26px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.muted { color: var(--muted); }
+.good { color: var(--green); } .bad { color: var(--red); }
+.bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
+.bar > i { display: block; height: 100%; background: var(--accent); border-radius: 4px; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: left; }
+th { color: var(--muted); font-weight: 500; }
+canvas, svg, img { max-width: 100%; }

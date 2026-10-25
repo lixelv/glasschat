@@ -5,8 +5,11 @@ cd "$(dirname "$0")/.."
 
 # The macOS 27 SDK needs SwiftUI macro plugins that ship only with Xcode; 26.5 does not.
 SDK=/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk
-swift build -c release --sdk "$SDK"
-BIN="$(swift build -c release --sdk "$SDK" --show-bin-path)"
+# Built outside the project: its folder is synced (File Provider), which marks new bundles with Finder info
+# that codesign refuses.
+SCRATCH="$HOME/Library/Caches/dev.lixelv.glasschat/build"
+swift build -c release --sdk "$SDK" --scratch-path "$SCRATCH"
+BIN="$(swift build -c release --sdk "$SDK" --scratch-path "$SCRATCH" --show-bin-path)"
 # Assembled and signed outside the repository: a synced folder (iCloud Drive, File Provider) puts Finder
 # information back on the .bundle folders, and codesign refuses them.
 STAGE="$(mktemp -d)"

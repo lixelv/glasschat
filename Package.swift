@@ -23,7 +23,7 @@ let package = Package(
                 .product(name: "Supertonic", package: "supertonic.swift"),
             ],
             path: "Sources/GlassChat",
-            resources: [.copy("Resources/KaTeX")]
+            resources: [.copy("Resources/KaTeX"), .copy("Resources/Visualize")]
         )
     ]
 )
