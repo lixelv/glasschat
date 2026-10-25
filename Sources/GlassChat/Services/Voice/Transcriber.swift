@@ -327,6 +327,11 @@ final class FinalTranscription: TranscriptionSession {
         self.task = task
         do {
             let text = try await task.value.trimmingCharacters(in: .whitespacesAndNewlines)
+            // Apple heard no words (or a known noise phrase without Apple): nothing was said.
+            guard WhisperFilter.accept(text, apple: fallback == nil ? nil : (apple ?? "")) else {
+                voiceLog.debug("dropped as noise: \(text, privacy: .public)")
+                return ""
+            }
             return text.isEmpty ? apple ?? "" : text
         } catch {
             guard let apple, !apple.isEmpty, !Task.isCancelled else { throw error }
@@ -338,5 +343,31 @@ final class FinalTranscription: TranscriptionSession {
     func cancel() {
         task?.cancel()
         fallback?.cancel()
+    }
+}
+
+/// Whisper turns noise and silence into subtitle phrases it learned ("Thank you.", "Продолжение следует…").
+/// Apple, listening to the same recording, does not: when it heard no words, Whisper's text is noise.
+enum WhisperFilter {
+    /// Phrases Whisper writes for noise; dropped only when Apple could not tell.
+    private static let noisePhrases = [
+        "thank you", "thank you for watching", "thanks for watching", "you", "bye", "hmm", "gracias", "merci",
+        "продолжение следует", "спасибо за просмотр", "спасибо за внимание", "подписывайтесь на канал",
+    ]
+    private static let noisePrefixes = ["субтитры", "редактор субтитров", "subtitles by", "amara.org"]
+
+    /// `apple`: Apple's text of the same recording (nil when Apple did not run).
+    static func accept(_ text: String, apple: String?) -> Bool {
+        guard let apple else { return !isNoise(text) }
+        // Apple's English recogniser has noise phrases too: both agreeing on one is still noise.
+        return SpeechText.isWords(apple) && !(isNoise(text) && isNoise(apple))
+    }
+
+    /// Whether a transcript is one of the phrases recognisers make of noise.
+    static func isNoise(_ text: String) -> Bool {
+        let normalized = text.lowercased()
+            .components(separatedBy: CharacterSet.letters.union(.whitespaces).inverted).joined()
+            .split(separator: " ").joined(separator: " ")
+        return noisePhrases.contains(normalized) || noisePrefixes.contains { normalized.hasPrefix($0) }
     }
 }

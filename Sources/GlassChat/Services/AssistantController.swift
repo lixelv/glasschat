@@ -280,6 +280,11 @@ final class AssistantController {
         guard !Task.isCancelled else { return nil }
         voiceLog.debug("transcribed: \(text, privacy: .public)")
         guard SpeechText.isWords(text) else { return nil }
+        // Apple alone: a noise phrase from a short burst ("Thank you." for a cough) is not sent.
+        if settings.recognitionMode == .builtIn, recording.voiced < 1.5, WhisperFilter.isNoise(text) {
+            voiceLog.debug("dropped as noise: \(text, privacy: .public)")
+            return nil
+        }
         heard = text
         return Heard(text: text, audio: nil)
     }
