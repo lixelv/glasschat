@@ -137,6 +137,7 @@ final class NotchPanelController {
         guard let panel else { return }
         let inside = shapeFrame.contains(point)
         if inside != pointerInside {
+            voiceLog.debug("pointer \(inside ? "entered" : "left", privacy: .public) at \(point.debugDescription, privacy: .public) shape \(self.shapeFrame.debugDescription, privacy: .public) state \(String(describing: self.model.state), privacy: .public)")
             pointerInside = inside
             inside ? pointerEntered() : pointerLeft()
         }

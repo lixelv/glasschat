@@ -56,13 +56,17 @@ final class AssistantController {
         }
     }
 
-    var waveMode: Waveform.Mode {
-        if Speaker.shared.isSpeaking { return .output }
+    var waveMode: Waveform.Mode { Self.waveMode(for: phase, speaking: Speaker.shared.isSpeaking) }
+
+    /// The bars: the voice while listening, the speech while speaking, the flowing wave only while the answer is
+    /// being thought out (still while transcribing, so they never look busy for nothing).
+    static func waveMode(for phase: Phase, speaking: Bool) -> Waveform.Mode {
+        if speaking { return .output }
         switch phase {
         case .listening: return .input
-        case .transcribing, .answering: return .wave
+        case .answering: return .wave
         case .speaking: return .output
-        case .idle: return .idle
+        case .transcribing, .idle: return .idle
         }
     }
 
@@ -94,6 +98,18 @@ final class AssistantController {
 
     func expanded() {
         voiceLog.debug("notch expanded")
+        // A hover recording becomes ordinary listening: the pointer may now leave the notch.
+        if HoverTalk.switchesToListening(hoverTalking: hoverTalking, expanded: true) {
+            voiceLog.debug("hover talk becomes listening")
+            hoverTalking = false
+            cycle?.cancel()
+            cycle = nil
+            cycleID = UUID()
+            recorder.cancel()
+            session?.cancel()
+            session = nil
+            phase = .idle
+        }
         // Local Whisper loads its model while the user starts talking.
         if settings.recognitionMode == .whisper { Task { _ = try? await VoiceModels.shared.transcriber() } }
         hasUnreadAnswer = false

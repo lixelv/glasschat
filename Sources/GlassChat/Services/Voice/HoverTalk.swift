@@ -13,4 +13,9 @@ enum HoverTalk {
     static func outcome(voiced: TimeInterval) -> Outcome {
         voiced >= SilenceDetector.minimumVoiced ? .open : .discard
     }
+
+    /// Whether opening the notch turns a hover recording into ordinary listening (ended by a pause).
+    static func switchesToListening(hoverTalking: Bool, expanded: Bool) -> Bool {
+        hoverTalking && expanded
+    }
 }
