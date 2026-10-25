@@ -48,9 +48,9 @@
 
 | Модуль | Название в UI | Инструменты |
 |---|---|---|
-| `necessary` | — (не показывается, всегда включён) | `search_tools`, `search_all_tools`, `app_say` |
+| `necessary` | — (не показывается, всегда включён) | `search_tools`, `search_all_tools`, `app_say`, `app_ask_user` |
 | `files` | Files & Terminal | `app_read`, `app_write`, `app_edit`, `app_bash` |
-| `user` | Questions & Alerts | `app_ask_user`, `_app_notify`, `_app_alert` |
+| `user` | Notifications & Alerts | `_app_notify`, `_app_alert` |
 | `chats` | Chats | `_app_list_chats`, `_app_create_chat`, `_app_switch_chat`, `_app_rename_chat`, `_app_delete_chat` |
 | `models` | Models | `_app_list_models`, `_app_set_model` |
 | `mcp` | MCP Servers | `_app_list_mcp`, `_app_enable_mcp`, `_app_disable_mcp`, `_mcp_registry_list/get/add/update/delete` |
@@ -127,6 +127,11 @@
   ширина ~600 px в чате и ~460 px в ноче, тёмный фон в ноче; классы `glass.css`; внешние URL заблокированы.
 - В промпте ассистента одна строка: числа, сравнения и шаги показывай через `glasschat__app_visualize`
   (небольшая высота в ноче).
+
+## Дополнения (2026-10-25, по просьбе пользователя)
+- `app_ask_user` — в `necessary`: не виден в UI, всегда включён.
+- Прокрутка: колесо над визуализацией прокручивает её, а у её края (или если она не прокручивается) — чат.
+- Длинный диалог: сообщения вне экрана не рендерятся (ленивая колонка), веб-вью визуализаций создаются только для видимых.
 
 ## Проверка
 Self-test: `WhisperLanguage.hint`; `PromptCache.mark` (anthropic / не anthropic, строки и части, tool-сообщения);

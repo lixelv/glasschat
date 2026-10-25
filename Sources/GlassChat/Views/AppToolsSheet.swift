@@ -17,7 +17,7 @@ struct AppToolsSheet: View {
         let functions = mcp.allFunctions().keys
         VStack(alignment: .leading, spacing: 12) {
             Text("App Tools").font(.headline)
-            Text("Tool search and speaking are always on. Tools of a module switched off can still be found by the model's search of every tool.")
+            Text("Tool search, speaking and questions are always on. Tools of a module switched off can still be found by the model's search of every tool.")
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)

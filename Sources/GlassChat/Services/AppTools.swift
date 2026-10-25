@@ -31,9 +31,9 @@ enum AppTool: String, CaseIterable, Sendable {
 
     var module: AppModule {
         switch self {
-        case .say: .necessary
+        case .say, .askUser: .necessary
         case .read, .write, .edit, .bash: .files
-        case .askUser, .notify, .alert: .user
+        case .notify, .alert: .user
         case .listChats, .createChat, .switchChat, .renameChat, .deleteChat: .chats
         case .listModels, .setModel: .models
         case .listMCP, .enableMCP, .disableMCP: .mcp
