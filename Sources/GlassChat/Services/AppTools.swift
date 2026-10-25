@@ -275,6 +275,10 @@ enum AppTool: String, CaseIterable, Sendable {
                 throw MCPError(message: "Unknown libraries: \(unknown.joined(separator: ", ")). Installed: \(libraries.entries.map(\.name).joined(separator: ", ")).")
             }
             let errors = await VisualSandbox.check(html: html, libraries: names.compactMap(libraries.entry))
+            // A page that never finished (or could not be shown) is not drawn: an error, so the model fixes it.
+            if let stuck = errors.first(where: { $0.hasPrefix("The page did not finish") || $0.hasPrefix("The page could not be shown") }) {
+                throw MCPError(message: stuck + " Call app_visualize again with a fix.")
+            }
             guard !errors.isEmpty else { return "Shown." }
             return "Shown, but the page reported errors:\n" + errors.prefix(10).joined(separator: "\n")
                 + "\nCall app_visualize again with a fix."
@@ -282,6 +286,7 @@ enum AppTool: String, CaseIterable, Sendable {
         case .installLibrary:
             guard let package = text("package") else { throw MCPError(message: "A \"package\" is needed.") }
             let version = text("version")
+            try VisualLibraries.validate(package: package, version: version, file: text("file"))
             if version == nil, text("file") == nil, let bundled = try VisualLibraries.shared.restoreBundled(package) {
                 return "\(bundled.name) is available again (bundled, version \(bundled.version))."
             }

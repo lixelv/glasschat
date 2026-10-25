@@ -3,14 +3,17 @@ import WebKit
 
 /// An `app_visualize` call's page, as the chat and the notch draw it.
 struct Visualization: Equatable {
+    let id: String
     let html: String
     let libraries: [String]
     let height: Double?
 
-    /// Nil for other calls, and while the arguments are still being written.
+    /// Nil for other calls, and for calls that were not shown (still running, failed, stopped, refused).
     init?(_ call: ToolCall) {
         guard call.name == MCPManager.registryPrefix + "__" + AppTool.visualize.rawValue,
+              !call.isError, call.result?.hasPrefix("Shown") == true,
               let args = JSONValue.parse(call.arguments), let html = args["html"]?.string, !html.isEmpty else { return nil }
+        id = call.id
         self.html = html
         libraries = args["libraries"]?.array?.compactMap(\.string) ?? []
         height = args["height"]?.double
@@ -27,6 +30,8 @@ struct VisualizationView: View {
     var dark = false
 
     init(_ visualization: Visualization, maxHeight: CGFloat, dark: Bool = false) {
+        id = visualization.id
+        _contentHeight = State(initialValue: Self.heights[visualization.id] ?? 60)
         html = visualization.html
         libraries = visualization.libraries
         height = visualization.height
@@ -34,13 +39,19 @@ struct VisualizationView: View {
         self.dark = dark
     }
 
-    @State private var contentHeight: CGFloat = 60
+    @State private var contentHeight: CGFloat
+    private let id: String
+
+    /// The last height of each page: a row made again (scrolled back, moved out of the last messages) starts there
+    /// instead of jumping.
+    private static var heights: [String: CGFloat] = [:]
 
     var body: some View {
         let wanted = max(height.map { CGFloat($0) } ?? 0, contentHeight)
         VisualWebView(html: html, libraries: libraries, dark: dark, contentHeight: $contentHeight)
             .frame(height: min(max(wanted, 24), maxHeight))
             .accessibilityLabel("Visualization")
+            .onChange(of: contentHeight) { _, height in Self.heights[id] = height }
     }
 }
 
@@ -83,8 +94,8 @@ private struct VisualWebView: NSViewRepresentable {
             guard shown != key else { return }
             shown = key
             Task {
-                let configuration = await VisualSandbox.configuration(messages: self)
-                guard let container, shown == key else { return }
+                guard let configuration = await VisualSandbox.configuration(messages: self),
+                      let container, shown == key else { return }
                 webView?.removeFromSuperview()
                 let view = PassingWebView(frame: container.bounds, configuration: configuration)
                 view.scrollState = { [weak self] in (self?.scrollY ?? 0, self?.pageHeight ?? 0) }
@@ -120,15 +131,17 @@ private struct VisualWebView: NSViewRepresentable {
 /// (a page in the chat must not trap the scrolling).
 private final class PassingWebView: WKWebView {
     var scrollState: () -> (y: CGFloat, height: CGFloat) = { (0, 0) }
-    private var passing = false
+    /// Who scrolls in this gesture; nil until it moves (a trackpad's first event often has no movement).
+    private var passing: Bool?
 
     override func scrollWheel(with event: NSEvent) {
         let starts = event.phase.contains(.began) || (event.phase.isEmpty && event.momentumPhase.isEmpty)
-        if starts {
+        if starts { passing = nil }
+        if passing == nil {
             let state = scrollState()
-            passing = VisualScroll.passesOn(deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY, scrollY: state.y,
+            passing = VisualScroll.decision(deltaX: event.scrollingDeltaX, deltaY: event.scrollingDeltaY, scrollY: state.y,
                                             contentHeight: state.height, frameHeight: bounds.height)
         }
-        if passing { nextResponder?.scrollWheel(with: event) } else { super.scrollWheel(with: event) }
+        if passing == true { nextResponder?.scrollWheel(with: event) } else { super.scrollWheel(with: event) }
     }
 }

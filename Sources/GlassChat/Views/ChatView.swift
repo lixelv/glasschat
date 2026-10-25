@@ -36,7 +36,7 @@ struct ChatView: View {
                         // the last ones are not: a lazy row re-estimated its height while text streamed in,
                         // and the list jumped.
                         let (settled, recent) = Self.split(messages.map(\.id), recent: 2)
-                        let byID = Dictionary(uniqueKeysWithValues: messages.map { ($0.id, $0) })
+                        let byID = Self.index(messages)
                         VStack(spacing: 18) {
                             LazyVStack(spacing: 18) {
                                 ForEach(settled, id: \.self) { id in
@@ -130,6 +130,11 @@ struct ChatView: View {
     }
 
     /// Changes whenever the last answer grows: its text, a step, a tool result.
+    /// The messages by id; a damaged file with one id twice keeps the first.
+    static func index(_ messages: [Message]) -> [Message.ID: Message] {
+        Dictionary(messages.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+    }
+
     /// The messages laid out lazily and the last `recent` ones laid out always.
     static func split<ID>(_ ids: [ID], recent: Int) -> (settled: [ID], recent: [ID]) {
         let cut = max(ids.count - recent, 0)

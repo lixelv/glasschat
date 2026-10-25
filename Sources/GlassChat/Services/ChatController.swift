@@ -118,7 +118,18 @@ final class ChatController {
                     // Calls of one round run together; each result shows as soon as it is there.
                     let running = round.map { call in
                         Task { () -> (String, Bool) in
-                            guard let function = functions[call.name] else { return ("Unknown tool \(call.name).", true) }
+                            guard let function = functions[call.name] else {
+                                // Shown on its card too (a tool switched off or never found), not left "running".
+                                let text = "Unknown tool \(call.name). Find it with search_tools or search_all_tools."
+                                self.edit(id, assistant.id) { message in
+                                    guard let s = message.steps.firstIndex(where: { $0.id == step.id }),
+                                          let c = message.steps[s].calls.firstIndex(where: { $0.id == call.id }) else { return }
+                                    message.steps[s].calls[c].result = text
+                                    message.steps[s].calls[c].isError = true
+                                    message.steps[s].calls[c].finishedAt = .now
+                                }
+                                return (text, true)
+                            }
                             let (text, isError): (String, Bool)
                             if case .search = function.target {
                                 (text, isError) = await Self.searchTools(call.arguments, scope: .hidden, found: found)

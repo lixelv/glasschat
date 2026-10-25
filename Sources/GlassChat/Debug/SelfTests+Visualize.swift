@@ -38,7 +38,7 @@ extension SelfTests {
         expect(withD3.entries.last == d3 && withD3.removing("d3") == manifest, "an installed library is added and removed")
         let coded = try? JSONDecoder().decode(VisualLibraries.Manifest.self, from: JSONEncoder().encode(withD3))
         expect(coded == withD3, "the manifest is saved as it is")
-        expect(VisualLibraries.downloadURL(package: "d3", version: "7.9.0", file: "/dist/d3.min.js").absoluteString
+        expect(VisualLibraries.downloadURL(package: "d3", version: "7.9.0", file: "/dist/d3.min.js")?.absoluteString
                == "https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js", "a jsDelivr file")
         expect(VisualLibraries.folderName("@observablehq/plot") == "observablehq-plot", "a package's folder name")
 
@@ -53,8 +53,9 @@ extension SelfTests {
         expect(AssistantPrompt.previous.count == 3, "the former standard prompts are replaced")
 
         // A visualize call in the chat becomes what is drawn; other calls do not.
-        let call = ToolCall(id: "c1", name: "glasschat__app_visualize",
+        var call = ToolCall(id: "c1", name: "glasschat__app_visualize",
                             arguments: #"{"html": "<p>Hi</p>", "libraries": ["chart.js"], "height": 200}"#)
+        call.result = "Shown."
         let shown = Visualization(call)
         expect(shown?.html == "<p>Hi</p>" && shown?.libraries == ["chart.js"] && shown?.height == 200, "a visualize call is drawn")
         expect(Visualization(ToolCall(id: "c2", name: "glasschat__app_say", arguments: #"{"text": "Hi"}"#)) == nil, "other calls are not")

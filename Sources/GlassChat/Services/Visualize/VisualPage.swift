@@ -8,6 +8,8 @@ enum VisualPage {
     static func html(body: String, libraries: [VisualLibraries.Entry]) -> String {
         var head = [
             "<meta charset=\"utf-8\">",
+            // Also against the network, from the page itself: no connections, no outside images, fonts or scripts.
+            "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src \(scheme): data: blob: 'unsafe-inline' 'unsafe-eval'; connect-src 'none'\">",
             "<meta name=\"viewport\" content=\"width=device-width\">",
             "<link rel=\"stylesheet\" href=\"\(scheme)://style/glass.css\">",
             "<script>\(report)</script>",
@@ -33,7 +35,8 @@ enum VisualPage {
       const post = (name, value) => { try { webkit.messageHandlers[name].postMessage(value) } catch (e) {} };
       window.addEventListener('error', e => post('error', String(e.message || e) + (e.lineno ? ' (line ' + e.lineno + ')' : '')));
       window.addEventListener('unhandledrejection', e => post('error', 'Unhandled promise rejection: ' + String(e.reason)));
-      const size = () => post('height', Math.ceil(document.documentElement.scrollHeight));
+      // The body's own height: the document is at least as tall as the view, which would never let it shrink.
+      const size = () => post('height', Math.ceil(document.body.getBoundingClientRect().height));
       window.addEventListener('scroll', () => post('scroll', window.scrollY), { passive: true });
       window.addEventListener('load', () => {
         size();

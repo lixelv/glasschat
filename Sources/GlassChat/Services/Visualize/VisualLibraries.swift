@@ -95,9 +95,25 @@ final class VisualLibraries {
 
     static let maxBytes = 10_000_000
 
-    nonisolated static func downloadURL(package: String, version: String, file: String) -> URL {
+    nonisolated static func downloadURL(package: String, version: String, file: String) -> URL? {
         let path = file.hasPrefix("/") ? String(file.dropFirst()) : file
-        return URL(string: "https://cdn.jsdelivr.net/npm/\(package)@\(version)/\(path)")!
+        guard isValidPackage(package), isValidVersion(version), isValidFile(path) else { return nil }
+        return URL(string: "https://cdn.jsdelivr.net/npm/\(package)@\(version)/\(path)")
+    }
+
+    /// A version or range ("7.9.0", "^4", "latest").
+    nonisolated static func isValidVersion(_ version: String) -> Bool {
+        version.wholeMatch(of: /[0-9A-Za-z.^~*+-]{1,64}/) != nil
+    }
+
+    /// A path inside a package ("dist/d3.min.js").
+    nonisolated static func isValidFile(_ path: String) -> Bool {
+        path.wholeMatch(of: /[0-9A-Za-z._@+\/-]{1,200}/) != nil && !path.split(separator: "/").contains("..")
+    }
+
+    /// An npm package name ("d3", "@observablehq/plot"): safe in a URL and as a folder name.
+    nonisolated static func isValidPackage(_ package: String) -> Bool {
+        package.wholeMatch(of: /(@[a-z0-9~-][a-z0-9._~-]*\/)?[a-z0-9~-][a-z0-9._~-]*/) != nil && package.count <= 214
     }
 
     /// A package's folder and library name: "@observablehq/plot" → "observablehq-plot".
@@ -108,6 +124,7 @@ final class VisualLibraries {
 
     /// Downloads a package's files (its js and css entry points unless `file` is given) and adds it.
     func install(package: String, version: String?, file: String?, global: String?, purpose: String) async throws -> Entry {
+        try Self.validate(package: package, version: version, file: file)
         let resolved = try await Self.resolve(package, version ?? "latest")
         var paths: [String]
         if let file, !file.isEmpty {
@@ -124,7 +141,10 @@ final class VisualLibraries {
         var files: [String] = []
         var total = 0
         for path in paths {
-            let (data, response) = try await URLSession.shared.data(from: Self.downloadURL(package: package, version: resolved, file: path))
+            guard let url = Self.downloadURL(package: package, version: resolved, file: path) else {
+                throw MCPError(message: "\(path) is not a file path in a package.")
+            }
+            let (data, response) = try await URLSession.shared.data(from: url)
             guard (response as? HTTPURLResponse)?.statusCode == 200 else {
                 throw MCPError(message: "jsDelivr has no \(path) in \(package)@\(resolved).")
             }
@@ -144,6 +164,17 @@ final class VisualLibraries {
         return entry
     }
 
+    /// Throws for a name, version or file the model wrote that is not one (before anyone is asked about it).
+    nonisolated static func validate(package: String, version: String?, file: String?) throws {
+        guard isValidPackage(package), !folderName(package).isEmpty else {
+            throw MCPError(message: "\"\(package)\" is not an npm package name (lowercase, like \"d3\" or \"@scope/name\").")
+        }
+        if let version, !isValidVersion(version) { throw MCPError(message: "\"\(version)\" is not a version.") }
+        if let file, !file.isEmpty, !isValidFile(file.hasPrefix("/") ? String(file.dropFirst()) : file) {
+            throw MCPError(message: "\"\(file)\" is not a file path in a package.")
+        }
+    }
+
     /// Adds a bundled library back, if `package` names one.
     func restoreBundled(_ package: String) throws -> Entry? {
         guard let entry = Manifest.bundled.first(where: { $0.name == Self.folderName(package) }) else { return nil }
@@ -161,9 +192,12 @@ final class VisualLibraries {
 
     private static func resolve(_ package: String, _ specifier: String) async throws -> String {
         struct Resolved: Decodable { let version: String? }
-        var components = URLComponents(string: "https://data.jsdelivr.com/v1/packages/npm/\(package)/resolved")!
+        guard var components = URLComponents(string: "https://data.jsdelivr.com/v1/packages/npm/\(package)/resolved") else {
+            throw MCPError(message: "\(package) is not an npm package name.")
+        }
         components.queryItems = [URLQueryItem(name: "specifier", value: specifier)]
-        let (data, _) = try await URLSession.shared.data(from: components.url!)
+        guard let url = components.url else { throw MCPError(message: "\(package) is not an npm package name.") }
+        let (data, _) = try await URLSession.shared.data(from: url)
         guard let version = try? JSONDecoder().decode(Resolved.self, from: data).version else {
             throw MCPError(message: "jsDelivr does not know \(package)@\(specifier).")
         }
@@ -175,7 +209,9 @@ final class VisualLibraries {
             struct Point: Decodable { let file: String }
             let entrypoints: [String: Point]?
         }
-        let url = URL(string: "https://data.jsdelivr.com/v1/packages/npm/\(package)@\(version)/entrypoints")!
+        guard let url = URL(string: "https://data.jsdelivr.com/v1/packages/npm/\(package)@\(version)/entrypoints") else {
+            throw MCPError(message: "\(package)@\(version) is not a package version.")
+        }
         let (data, _) = try await URLSession.shared.data(from: url)
         let points = (try? JSONDecoder().decode(Points.self, from: data))?.entrypoints ?? [:]
         return ["css", "js"].compactMap { points[$0]?.file }
