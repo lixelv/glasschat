@@ -62,10 +62,11 @@ enum Transcription {
             guard let apple else { throw VoiceError.engine("Apple recognition could not start.") }
             return apple
         }
-        return FinalTranscription(fallback: apple) { recording in
+        return FinalTranscription(fallback: apple) { recording, language in
             let kit = try await VoiceModels.shared.transcriber()
-            // Without this WhisperKit prefills English and never detects the language.
-            let options = DecodingOptions(usePrefillPrompt: false, detectLanguage: true)
+            // The language Apple heard; without one WhisperKit must detect it (its prefill would force English).
+            let options = language.map { DecodingOptions(language: $0, usePrefillPrompt: true, detectLanguage: false) }
+                ?? DecodingOptions(usePrefillPrompt: false, detectLanguage: true)
             let results = try await kit.transcribe(audioPath: recording.url.path, decodeOptions: options)
             // Whisper marks silence and noise as "[BLANK_AUDIO]" or "(music)": not words.
             return results.map(\.text).joined(separator: " ")
@@ -100,6 +101,8 @@ struct RecognitionLane {
         /// The sum of the confidences of its characters.
         var confidence: Double
         var characters: Int
+        /// The language of the lane that heard it ("ru").
+        var language: String? = nil
     }
 
     /// The surest text (the longest when no confidences were given); nil when nothing was heard.
@@ -118,6 +121,8 @@ struct RecognitionLane {
 @MainActor
 final class AppleTranscription: TranscriptionSession {
     private let lanes: [Lane]
+    /// The language of the surest text, once finished.
+    private(set) var language: String?
 
     private struct Lane {
         let analyzer: SpeechAnalyzer
@@ -186,7 +191,8 @@ final class AppleTranscription: TranscriptionSession {
 
         // Finished pieces add up; the volatile one is replaced as it is revised.
         let results = Task { @MainActor () throws -> RecognitionLane.Score in
-            var final = RecognitionLane.Score(text: "", confidence: 0, characters: 0)
+            let code = locale.language.languageCode?.identifier
+            var final = RecognitionLane.Score(text: "", confidence: 0, characters: 0, language: code)
             @MainActor func take(_ text: AttributedString, _ isFinal: Bool) {
                 var piece = RecognitionLane.Score(text: String(text.characters), confidence: 0, characters: 0)
                 for run in text.runs {
@@ -195,7 +201,7 @@ final class AppleTranscription: TranscriptionSession {
                     piece.confidence += (run[AttributeScopes.SpeechAttributes.ConfidenceAttribute.self] ?? 0) * Double(count)
                 }
                 let shown = RecognitionLane.Score(text: final.text + piece.text, confidence: final.confidence + piece.confidence,
-                                                  characters: final.characters + piece.characters)
+                                                  characters: final.characters + piece.characters, language: code)
                 if isFinal { final = shown }
                 live.update(index, shown)
             }
@@ -227,7 +233,9 @@ final class AppleTranscription: TranscriptionSession {
             try? await lane.analyzer.finalizeAndFinishThroughEndOfInput()
             if let score = try? await lane.results.value { scores.append(score) }
         }
-        return RecognitionLane.best(scores)?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let best = RecognitionLane.best(scores)
+        language = best?.language
+        return best?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
     func cancel() {
@@ -308,10 +316,11 @@ final class AppleTranscription: TranscriptionSession {
 @MainActor
 final class FinalTranscription: TranscriptionSession {
     private let fallback: AppleTranscription?
-    private let transcribe: @MainActor (Recording) async throws -> String
+    /// Transcribes a recording, told the language Apple heard it in (nil: detect it).
+    private let transcribe: @MainActor (Recording, String?) async throws -> String
     private var task: Task<String, Error>?
 
-    init(fallback: AppleTranscription?, transcribe: @escaping @MainActor (Recording) async throws -> String) {
+    init(fallback: AppleTranscription?, transcribe: @escaping @MainActor (Recording, String?) async throws -> String) {
         self.fallback = fallback
         self.transcribe = transcribe
     }
@@ -322,8 +331,10 @@ final class FinalTranscription: TranscriptionSession {
 
     func finish(_ recording: Recording) async throws -> String {
         let apple = try? await fallback?.finish(recording)
+        let language = WhisperLanguage.hint(appleText: apple, appleLanguage: fallback?.language)
+        voiceLog.debug("whisper language: \(language ?? "detect", privacy: .public)")
         let transcribe = transcribe
-        let task = Task { try await transcribe(recording) }
+        let task = Task { try await transcribe(recording, language) }
         self.task = task
         do {
             let text = try await task.value.trimmingCharacters(in: .whitespacesAndNewlines)
