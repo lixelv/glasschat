@@ -59,8 +59,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             Task { @MainActor in AppDelegate.current?.updateDockIcon() }
         }
         MCPManager.shared.syncConnections()
-        // Voice models a previous version never downloaded (a new install gets them in the onboarding).
-        if AppSettings.shared.isConfigured, !VoiceModels.shared.isComplete {
+        // Voice models not downloaded yet (a new install, or a previous version): they need no account.
+        if !VoiceModels.shared.isComplete {
             VoiceModels.shared.startDownloads()
         }
         NotchPanelController.shared.content = { AnyView(AssistantNotchContent()) }

@@ -27,14 +27,27 @@ struct VoiceModelsStatus: View {
     var body: some View {
         row("Whisper large-v3-turbo (hearing, ~630 MB)", models.whisper)
         row("Supertonic 3 (voice, ~400 MB)", models.speech)
-        if case .failed = models.whisper { retry } else if case .failed = models.speech { retry }
+        if needsButton(models.whisper) || needsButton(models.speech) { retry }
     }
 
     private var retry: some View {
         HStack {
             Spacer()
-            Button("Download Again") { Task { await models.downloadAll() } }
+            Button(isFailed ? "Download Again" : "Download") { models.startDownloads() }
         }
+    }
+
+    private func needsButton(_ state: VoiceModels.State) -> Bool {
+        switch state {
+        case .missing, .failed: true
+        default: false
+        }
+    }
+
+    private var isFailed: Bool {
+        if case .failed = models.whisper { return true }
+        if case .failed = models.speech { return true }
+        return false
     }
 
     private func row(_ title: String, _ state: VoiceModels.State) -> some View {
