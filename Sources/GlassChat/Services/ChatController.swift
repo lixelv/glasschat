@@ -85,7 +85,8 @@ final class ChatController {
                             if let name { call.name += name }
                             call.arguments += arguments
                             calls[index] = call
-                        case .usage(let input, let output):
+                        case .usage(let input, let output, let cached):
+                            chatLog.debug("usage in=\(input) cached=\(cached) out=\(output) model=\(model, privacy: .public)")
                             // Each round of tool calls is a request of its own: they add up.
                             edit(id, assistant.id) {
                                 $0.inputTokens = ($0.inputTokens ?? 0) + input

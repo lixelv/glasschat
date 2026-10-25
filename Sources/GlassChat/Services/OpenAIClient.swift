@@ -6,8 +6,9 @@ enum StreamEvent: Sendable {
     /// A piece of a tool call: the first piece of an index has its id and name, all add to the arguments.
     case toolCall(index: Int, id: String?, name: String?, arguments: String)
     case finish(reason: String?)
-    /// Tokens of the whole request (the last chunk, asked for with `stream_options.include_usage`).
-    case usage(input: Int, output: Int)
+    /// Tokens of the whole request (the last chunk, asked for with `stream_options.include_usage`);
+    /// `cached`: input tokens read from the provider's prompt cache.
+    case usage(input: Int, output: Int, cached: Int)
 }
 
 struct APIError: LocalizedError, Sendable {
@@ -51,7 +52,7 @@ struct OpenAIClient: Sendable {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
         var body: [String: JSONValue] = [
-            "model": .string(model), "stream": .bool(true), "messages": .array(messages),
+            "model": .string(model), "stream": .bool(true), "messages": .array(PromptCache.mark(messages, model: model)),
             "stream_options": .object(["include_usage": .bool(true)]),
         ]
         if !tools.isEmpty { body["tools"] = .array(tools) }
@@ -98,14 +99,20 @@ struct OpenAIClient: Sendable {
                 let delta: Delta?
                 let finish_reason: String?
             }
-            struct Usage: Decodable { let prompt_tokens: Int?; let completion_tokens: Int? }
+            struct Usage: Decodable {
+                struct Details: Decodable { let cached_tokens: Int? }
+                let prompt_tokens: Int?
+                let completion_tokens: Int?
+                let prompt_tokens_details: Details?
+            }
             let choices: [Choice]?
             let usage: Usage?
         }
         guard let chunk = try? JSONDecoder().decode(Chunk.self, from: Data(payload.utf8)) else { return [] }
         var events: [StreamEvent] = []
         if let usage = chunk.usage, usage.prompt_tokens != nil || usage.completion_tokens != nil {
-            events.append(.usage(input: usage.prompt_tokens ?? 0, output: usage.completion_tokens ?? 0))
+            events.append(.usage(input: usage.prompt_tokens ?? 0, output: usage.completion_tokens ?? 0,
+                                 cached: usage.prompt_tokens_details?.cached_tokens ?? 0))
         }
         guard let choice = chunk.choices?.first else { return events }
         if let text = choice.delta?.content, !text.isEmpty { events.append(.text(text)) }
