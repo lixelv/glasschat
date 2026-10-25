@@ -115,7 +115,8 @@ final class AssistantController {
     /// Starts a conversation, unless one is already running.
     func listen() {
         voiceLog.debug("listen requested, running: \(self.cycle != nil)")
-        guard cycle == nil else { return }
+        // While the assistant answers or speaks, the microphone stays off: it would hear itself.
+        guard cycle == nil, !Speaker.shared.isSpeaking, !ChatController.shared.isStreaming(chatID) else { return }
         error = nil
         let id = UUID()
         cycleID = id
@@ -127,7 +128,7 @@ final class AssistantController {
 
     /// The pointer rests on the folded notch: record until it leaves.
     func hoverStarted() {
-        guard cycle == nil, !isExpanded else { return }
+        guard cycle == nil, !isExpanded, !Speaker.shared.isSpeaking, !ChatController.shared.isStreaming(chatID) else { return }
         voiceLog.debug("hover talk started")
         error = nil
         let id = UUID()
