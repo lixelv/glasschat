@@ -230,6 +230,7 @@ final class AssistantController {
                 heard = phrase
             }
             let id = chatID
+            Speaker.shared.resetSpoken()
             // With "Audio to the Model" the recording is the message; the words are only shown.
             if let audio = heard.audio {
                 ChatController.shared.send("", attachments: [audio], in: id)
@@ -241,14 +242,27 @@ final class AssistantController {
                 return
             }
             phase = .answering
+            // Meanwhile the microphone listens only for an interruption (the echo canceller removes the voice).
+            let interruption = startInterruptionListener(chat: id)
             await waitForAnswer(id)
-            if let failure = ChatController.shared.errors[id] {
+            if let failure = ChatController.shared.errors[id], !interrupted {
+                interruption?.cancel()
                 error = failure.localizedDescription
                 return
             }
             while Speaker.shared.isSpeaking, !Task.isCancelled {
                 phase = .speaking
                 try? await Task.sleep(for: .milliseconds(100))
+            }
+            if let interruption {
+                if interrupted {
+                    // The user spoke over the answer: their phrase is the next message.
+                    guard let phrase = await interruption.value else { return }
+                    pending = phrase
+                    continue
+                }
+                interruption.cancel()
+                recorder.cancel()
             }
             guard isExpanded, !Task.isCancelled else {
                 if !isExpanded { hasUnreadAnswer = true }
@@ -258,6 +272,70 @@ final class AssistantController {
             guard settings.followUpWindow > 0 else { return }
             followUp = true
         }
+    }
+
+    /// The user started talking over the answer (set by the interruption listener).
+    private var interrupted = false
+
+    /// Listens during an answer for the user talking over it; nil when interrupting is off or not possible.
+    private func startInterruptionListener(chat: Chat.ID) -> Task<Heard?, Never>? {
+        interrupted = false
+        guard settings.interruptBySpeaking, !hoverTalking, QuestionCenter.shared.pending[chat] == nil else { return nil }
+        AudioEngineHub.shared.configure()
+        guard AudioEngineHub.shared.echoCancellation else { return nil }
+        return Task { [weak self] in await self?.listenForInterruption(chat) }
+    }
+
+    /// Records with no pause and no time limit until meaningful words come; then it ends at the next pause and
+    /// is transcribed like any phrase. Nil without an interruption.
+    private func listenForInterruption(_ chat: Chat.ID) async -> Heard? {
+        guard await VoiceRecorder.requestAccess(), !Task.isCancelled else { return nil }
+        do {
+            let format = try recorder.inputFormat()
+            let session = try await Transcription.start(
+                inputFormat: format,
+                onPartial: { [weak self] text in self?.interruptionHeard(text, chat: chat) },
+                onProgress: { _ in })
+            guard !Task.isCancelled else {
+                session.cancel()
+                return nil
+            }
+            self.session = session
+            var config = SilenceDetector.Config()
+            config.silence = .infinity
+            config.wait = .infinity
+            guard let recording = try await recorder.record(config, onBuffer: { session.append($0) }) else {
+                session.cancel()
+                return nil
+            }
+            guard interrupted else {
+                session.cancel()
+                try? FileManager.default.removeItem(at: recording.url)
+                return nil
+            }
+            return try await transcribe(recording, with: session)
+        } catch {
+            return nil
+        }
+    }
+
+    /// Live words during an answer: meaningful ones stop the answer and the voice, and the phrase goes on.
+    private func interruptionHeard(_ text: String, chat: Chat.ID) {
+        if interrupted {
+            heard = text
+            followWords(text)
+            return
+        }
+        guard BargeIn.isMeaningful(heard: text, voiced: recorder.voiced, spoken: Speaker.shared.spoken) else { return }
+        voiceLog.debug("barge-in: \(text, privacy: .public)")
+        interrupted = true
+        Speaker.shared.stop()
+        ChatController.shared.stop(chat)
+        ApprovalCenter.shared.dismiss(in: chat)
+        QuestionCenter.shared.dismiss(in: chat)
+        heard = text
+        phase = .listening(followUp: false)
+        followWords(text)
     }
 
     /// Waits for the answer; a question card it shows is answered by voice (the notch opens for it).

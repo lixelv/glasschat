@@ -32,6 +32,9 @@ struct AssistantSettings: View {
                     .disabled(!settings.assistantEnabled)
                 Toggle("Talk while hovering the notch", isOn: $settings.hoverToTalk)
                     .disabled(!settings.assistantEnabled)
+                Toggle("Interrupt by speaking", isOn: $settings.interruptBySpeaking)
+                    .disabled(!settings.assistantEnabled)
+                    .help("Talking over an answer stops it and sends what you say. macOS echo cancellation keeps the assistant from hearing itself.")
             } header: {
                 Text("Notch Assistant")
             } footer: {

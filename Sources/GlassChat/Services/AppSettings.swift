@@ -33,6 +33,8 @@ final class AppSettings {
     var assistantEnabled: Bool { didSet { defaults.set(assistantEnabled, forKey: "assistantEnabled") } }
     /// Resting the pointer on the folded notch records until it leaves.
     var hoverToTalk: Bool { didSet { defaults.set(hoverToTalk, forKey: "hoverToTalk") } }
+    /// Talking over an answer stops it and sends the new phrase.
+    var interruptBySpeaking: Bool { didSet { defaults.set(interruptBySpeaking, forKey: "interruptBySpeaking") } }
     /// Seconds the pointer rests on the notch before it records.
     var hoverDelay: Double { didSet { defaults.set(hoverDelay, forKey: "hoverDelay") } }
     /// The shortcut that opens the notch from any app; nil: none.
@@ -80,6 +82,7 @@ final class AppSettings {
         recognitionMode = RecognitionMode.migrated(defaults.string(forKey: "recognitionMode"))
         assistantEnabled = defaults.object(forKey: "assistantEnabled") as? Bool ?? true
         hoverToTalk = defaults.object(forKey: "hoverToTalk") as? Bool ?? true
+        interruptBySpeaking = defaults.object(forKey: "interruptBySpeaking") as? Bool ?? true
         hoverDelay = defaults.object(forKey: "hoverDelay") as? Double ?? 0.3
         switch defaults.object(forKey: "assistantShortcut") {
         case let data as Data: assistantShortcut = (try? JSONDecoder().decode(Shortcut.self, from: data)) ?? .standard

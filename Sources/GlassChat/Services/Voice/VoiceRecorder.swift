@@ -87,6 +87,9 @@ final class VoiceRecorder {
         }
     }
 
+    /// Seconds of voice in the phrase being recorded so far.
+    var voiced: TimeInterval { detector.voiced }
+
     /// Changes the pause that ends the phrase being recorded.
     func updateSilence(_ seconds: TimeInterval) {
         guard isRecording else { return }

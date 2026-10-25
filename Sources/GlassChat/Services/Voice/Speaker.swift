@@ -13,6 +13,12 @@ final class Speaker {
     private(set) var level = 0.0
     /// What is being said (a message id), so its Speak button can turn into Stop.
     private(set) var speakingID: String?
+    /// What was said aloud since the last message (an interruption is not its echo).
+    private(set) var spoken = ""
+
+    func resetSpoken() {
+        spoken = ""
+    }
 
     private var synthesizer: AVSpeechSynthesizer?
     private var playback: SynthPlayback?
@@ -24,6 +30,7 @@ final class Speaker {
     @discardableResult
     func speak(_ text: String, id: String? = nil) async throws -> Bool {
         stop()
+        spoken += " " + text
         let once = ResumeOnce<Bool>()
         done = once
         speakingID = id
