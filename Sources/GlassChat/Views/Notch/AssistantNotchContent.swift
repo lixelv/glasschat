@@ -96,7 +96,7 @@ struct AssistantNotchContent: View {
         switch assistant.phase {
         case .listening: "Listening…"
         case .transcribing: "…"
-        default: "Click the face to talk."
+        default: AppSettings.shared.talkShortcut.map { "Hold \($0.display) and talk." } ?? "Set a talk shortcut in Settings."
         }
     }
 

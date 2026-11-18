@@ -2,8 +2,8 @@ import AVFoundation
 import Foundation
 import Observation
 
-/// The voice loop of the notch: listen until a pause, transcribe, send to the assistant's chat, wait for the
-/// answer (and its speech), then keep listening for a while for a follow-up.
+/// The voice of the notch, a walkie-talkie: it hears only while the talk shortcut is held; letting go sends what
+/// was said (nothing, when nothing was). Holding it during an answer lets the answer go on until the user speaks.
 @Observable
 @MainActor
 final class AssistantController {
@@ -13,7 +13,14 @@ final class AssistantController {
         case idle, listening(followUp: Bool), transcribing, answering, speaking
     }
 
-    private(set) var phase = Phase.idle { didSet { voiceLog.debug("phase \(String(describing: self.phase), privacy: .public)") } }
+    /// Listening while the shortcut is held, then transcribing; otherwise what the answer is doing.
+    var phase: Phase {
+        if listening { return .listening(followUp: false) }
+        if transcribing { return .transcribing }
+        if let id = settings.assistantChatID, ChatController.shared.isStreaming(id) { return .answering }
+        if Speaker.shared.isSpeaking { return .speaking }
+        return .idle
+    }
     /// What the user said last (live while they speak, with Apple recognition).
     private(set) var heard = ""
     private(set) var error: String?
@@ -26,14 +33,14 @@ final class AssistantController {
     private let settings = AppSettings.shared
     private let recorder = VoiceRecorder.shared
     private var session: (any TranscriptionSession)?
-    /// The running conversation (listen → answer → listen again); nil when idle.
-    private var cycle: Task<Void, Never>?
-    /// Which conversation is the current one: a cancelled one finishing late must not touch the next.
-    private var cycleID = UUID()
-    /// Listening for the answer to a question card while the answer waits.
-    private var questionListening = false
-    /// Recording while the pointer rests on the folded notch.
-    private var hoverTalking = false
+    /// The phrase held now (recording, then transcribing and sending); nil when the shortcut is not held.
+    private var talk: Task<Void, Never>?
+    /// Which phrase is the current one: a cancelled one finishing late must not touch the next.
+    private var talkID = UUID()
+    private var listening = false
+    private var transcribing = false
+    /// Follows the answer being written: opens the notch for its cards, marks it unread, shows its error.
+    private var answerWatch: Task<Void, Never>?
 
     private init() {}
 
@@ -72,8 +79,8 @@ final class AssistantController {
 
     var level: Double { Speaker.shared.isSpeaking ? Speaker.shared.level : recorder.level }
 
-    /// From the moment a conversation starts (it may still be asking for the microphone) until it is over.
-    var isBusy: Bool { cycle != nil || phase != .idle || Speaker.shared.isSpeaking }
+    /// From the moment the shortcut is pressed (it may still be asking for the microphone) until the answer is over.
+    var isBusy: Bool { talk != nil || phase != .idle }
 
     // MARK: The notch
 
@@ -81,9 +88,6 @@ final class AssistantController {
     func attach(_ model: NotchModel) {
         model.onExpand = { [weak self] in self?.expanded() }
         model.onCollapse = { [weak self] in self?.collapsed() }
-        model.onAvatarTap = { [weak self] in self?.listen() }
-        model.onHoverTalk = { [weak self] in self?.hoverStarted() }
-        model.onHoverEnd = { [weak self] in self?.hoverEnded() }
         Task { @MainActor [weak self, weak model] in
             while let self, let model {
                 model.mood = mood
@@ -96,104 +100,48 @@ final class AssistantController {
         }
     }
 
+    /// Opening the notch shows the conversation; it does not listen (only the shortcut does).
     func expanded() {
         voiceLog.debug("notch expanded")
-        // A hover recording becomes ordinary listening: the pointer may now leave the notch.
-        if HoverTalk.switchesToListening(hoverTalking: hoverTalking, expanded: true) {
-            voiceLog.debug("hover talk becomes listening")
-            hoverTalking = false
-            cycle?.cancel()
-            cycle = nil
-            cycleID = UUID()
-            recorder.cancel()
-            session?.cancel()
-            session = nil
-            phase = .idle
-        }
-        // Local Whisper loads its model while the user starts talking.
+        // Local Whisper loads its model while the user may start talking.
         if settings.recognitionMode == .whisper { Task { _ = try? await VoiceModels.shared.transcriber() } }
         hasUnreadAnswer = false
         error = nil
-        if !ChatController.shared.isStreaming(chatID) { listen() }
     }
 
-    /// Folding stops listening and speaking; an answer being written goes on.
+    /// Folding drops the phrase being held and stops speaking; an answer being written goes on.
     func collapsed() {
         voiceLog.debug("notch collapsed")
-        // A conversation still waiting to listen ends; one with an answer on the way goes on.
-        if phase != .answering, phase != .speaking, !questionListening { cycle?.cancel() }
-        interruption?.cancel()
-        interruption = nil
-        recorder.cancel()
-        session?.cancel()
-        session = nil
-        Speaker.shared.stop()
+        cancelTalk()
+        if !foldingBack { Speaker.shared.stop() }
     }
 
-    /// Starts a conversation, unless one is already running.
-    func listen() {
-        voiceLog.debug("listen requested, running: \(self.cycle != nil)")
-        // While the assistant answers or speaks, the microphone stays off: it would hear itself.
-        guard cycle == nil, !Speaker.shared.isSpeaking, !ChatController.shared.isStreaming(chatID) else { return }
-        error = nil
-        let id = UUID()
-        cycleID = id
-        cycle = Task { [weak self] in
-            await self?.converse(id)
-            if self?.cycleID == id { self?.cycle = nil }
-        }
-    }
+    /// Folding a notch that opened only for a phrase: the answer it found going on keeps its voice.
+    private var foldingBack = false
 
-    /// The pointer rests on the folded notch: record until it leaves.
-    func hoverStarted() {
-        guard cycle == nil, !isExpanded, !Speaker.shared.isSpeaking, !ChatController.shared.isStreaming(chatID) else { return }
-        voiceLog.debug("hover talk started")
-        error = nil
-        let id = UUID()
-        cycleID = id
-        hoverTalking = true
-        cycle = Task { [weak self] in
-            guard let self else { return }
-            let first = await self.hearWhileHovering()
-            self.hoverTalking = false
-            if let first {
-                await self.converse(id, first: first)
-            } else if self.cycleID == id {
-                self.phase = .idle
-            }
-            if self.cycleID == id { self.cycle = nil }
-        }
-    }
-
-    /// The pointer left the notch: the phrase is over.
-    func hoverEnded() {
-        guard hoverTalking else { return }
-        voiceLog.debug("hover talk ended")
-        // Before the recording started, this keeps it from starting (nothing would end it).
-        hoverTalking = false
-        recorder.finish()
+    private func foldBack() {
+        foldingBack = true
+        NotchPanelController.shared.collapse()
+        foldingBack = false
     }
 
     func stopAll() {
         voiceLog.debug("stop all")
         let id = chatID
-        cycle?.cancel()
-        cycle = nil
-        cycleID = UUID()
+        answerWatch?.cancel()
+        answerWatch = nil
         collapsed()
         ChatController.shared.stop(id)
         QuestionCenter.shared.dismiss(in: id)
         ApprovalCenter.shared.dismiss(in: id)
-        phase = .idle
     }
 
-    /// A new chat, and the notch goes on listening in it.
+    /// A new chat; the notch stays open for the next phrase.
     func newConversation() {
         stopAll()
         _ = newChat()
         heard = ""
         error = nil
-        if isExpanded { listen() }
     }
 
     /// Reads the last answer aloud, or stops it.
@@ -202,7 +150,8 @@ final class AssistantController {
         if Speaker.shared.speakingID == message.id.uuidString { Speaker.shared.stop(); return }
         let text = SpeechText.plain((message.steps.map(\.text) + [message.content]).filter { !$0.isEmpty }.joined(separator: "\n\n"))
         Task {
-            do { try await Speaker.shared.speak(text, id: message.id.uuidString) }
+            // Through the echo canceller: the user may hold the shortcut and talk over it.
+            do { try await Speaker.shared.speak(text, id: message.id.uuidString, interruptible: true) }
             catch { self.error = error.localizedDescription }
         }
     }
@@ -215,344 +164,266 @@ final class AssistantController {
         return chat.id
     }
 
-    // MARK: The loop
+    // MARK: The shortcut
 
-    /// `first`: a phrase already heard (by hovering) to send before listening.
-    private func converse(_ id: UUID, first: Heard? = nil) async {
-        var followUp = false
-        var pending = first
-        defer { if !questionListening, cycleID == id { phase = .idle } }
-        while !Task.isCancelled {
-            let heard: Heard
-            if let phrase = pending {
-                heard = phrase
-                pending = nil
-            } else {
-                guard let phrase = await hear(followUp: followUp) else { return }
-                heard = phrase
-            }
-            let id = chatID
-            Speaker.shared.resetSpoken()
-            // With "Audio to the Model" the recording is the message; the words are only shown.
-            if let audio = heard.audio {
-                ChatController.shared.send("", attachments: [audio], in: id)
-            } else {
-                ChatController.shared.send(heard.text, in: id)
-            }
-            guard ChatController.shared.isStreaming(id) else {
-                error = ChatController.shared.errors[id]?.localizedDescription
-                return
-            }
-            phase = .answering
-            // Meanwhile the microphone listens only for an interruption (the echo canceller removes the voice).
-            let interruption = startInterruptionListener(chat: id)
-            await waitForAnswer(id)
-            if let failure = ChatController.shared.errors[id], !interrupted {
-                interruption?.cancel()
-                error = failure.localizedDescription
-                return
-            }
-            while Speaker.shared.isSpeaking, !Task.isCancelled {
-                phase = .speaking
-                try? await Task.sleep(for: .milliseconds(100))
-            }
-            if let interruption {
-                // Still talking as the answer ends: an interruption whose words had not come yet.
-                if !interrupted, recorder.isRecording {
-                    try? await Task.sleep(for: .milliseconds(300))
-                    if !interrupted, recorder.voiceWithin(0.4) { interruptAtEnd() }
-                }
-                if interrupted {
-                    // The user spoke over the answer: their phrase is the next message.
-                    let phrase = await interruption.value
-                    self.interruption = nil
-                    if let phrase {
-                        pending = phrase
-                        continue
-                    }
-                    // Nothing usable was said: listen for it again.
-                    guard isExpanded, !Task.isCancelled, settings.followUpWindow > 0 else { return }
-                    followUp = true
-                    continue
-                }
-                interruption.cancel()
-                self.interruption = nil
-                recorder.cancel()
-            }
-            guard isExpanded, !Task.isCancelled else {
-                if !isExpanded { hasUnreadAnswer = true }
-                return
-            }
-            // 0 s in Settings: no listening after an answer.
-            guard settings.followUpWindow > 0 else { return }
-            followUp = true
+    /// The shortcut went down: the notch opens and listens until it is let go.
+    func talkPressed() {
+        guard talk == nil else { return }
+        voiceLog.debug("talk pressed")
+        openedByPress = !isExpanded
+        if openedByPress { NotchPanelController.shared.expand(focus: false) }
+        error = nil
+        let chat = chatID
+        let id = UUID()
+        talkID = id
+        talk = Task { [weak self] in
+            await self?.hold(chat: chat)
+            if self?.talkID == id { self?.talk = nil }
         }
     }
 
-    /// The user started talking over the answer (set by the interruption listener).
-    private var interrupted = false
-    /// The interruption listener of the answer being written; folding the notch cancels it.
-    private var interruption: Task<Heard?, Never>?
-    /// What the listener heard, one utterance at a time.
-    private var utterance = BargeIn.Utterance()
-    private var utteranceText = ""
-    /// Where the interrupting phrase starts in the listener's recording (Whisper hears only that part).
-    private var interruptionStart: TimeInterval = 0
-
-    /// Listens during an answer for the user talking over it; nil when interrupting is off or not possible.
-    private func startInterruptionListener(chat: Chat.ID) -> Task<Heard?, Never>? {
-        interrupted = false
-        utterance = BargeIn.Utterance()
-        utteranceText = ""
-        interruptionStart = 0
-        guard settings.interruptBySpeaking, isExpanded, !hoverTalking, QuestionCenter.shared.pending[chat] == nil else { return nil }
-        AudioEngineHub.shared.configure()
-        guard AudioEngineHub.shared.echoCancellation else { return nil }
-        let task = Task { [weak self] in await self?.listenForInterruption(chat) }
-        interruption = task
-        return task
+    /// The shortcut was let go: the phrase is over.
+    func talkReleased() {
+        guard talk != nil else { return }
+        voiceLog.debug("talk released")
+        released = true
+        recorder.finish()
     }
 
-    /// Records with no pause and no time limit until meaningful words come; then it ends at the next pause and
-    /// is transcribed like any phrase. Nil without an interruption.
-    private func listenForInterruption(_ chat: Chat.ID) async -> Heard? {
-        guard await VoiceRecorder.requestAccess(), !Task.isCancelled else { return nil }
+    /// Another key came with the shortcut (another shortcut), or the notch folded: nothing is sent.
+    func talkCancelled() {
+        guard talk != nil else { return }
+        voiceLog.debug("talk cancelled")
+        let folds = foldsBack
+        cancelTalk()
+        if folds { foldBack() }
+    }
+
+    private func cancelTalk() {
+        talk?.cancel()
+        talk = nil
+        talkID = UUID()
+        recorder.cancel()
+        session?.cancel()
+        session = nil
+        listening = false
+        transcribing = false
+        released = false
+    }
+
+    // MARK: Holding
+
+    /// The shortcut was let go before the recording started: nothing will end it, so it must not start.
+    private var released = false
+    /// The notch was folded when the shortcut went down.
+    private var openedByPress = false
+    /// The user started talking over the answer (it was stopped).
+    private var interrupted = false
+    /// What was heard, one utterance at a time (during an answer: the echo before the user's words is not theirs).
+    private var utterance = BargeIn.Utterance()
+    /// Where the user's phrase starts in the recording during an answer (Whisper hears only that part).
+    private var phraseStart: TimeInterval = 0
+
+    /// Records while the shortcut is held, then sends what was said: a new message, or the answer to a question card.
+    private func hold(chat: Chat.ID) async {
+        released = false
+        interrupted = false
+        utterance = BargeIn.Utterance()
+        phraseStart = 0
+        // An answer being written or spoken goes on until the user talks; a question card waits for its answer.
+        let answering = ChatController.shared.isStreaming(chat) || Speaker.shared.isSpeaking
+        let question = QuestionCenter.shared.pending[chat] != nil
+        if !answering { heard = "" }
+
+        let allowed = await VoiceRecorder.requestAccess()
+        guard !Task.isCancelled else { return }
+        guard allowed else {
+            microphoneDenied = true
+            error = VoiceError.microphoneDenied.localizedDescription
+            return
+        }
+        microphoneDenied = false
+        guard !released else { return finishSilently() }
         do {
+            AudioEngineHub.shared.configure()
             let format = try recorder.inputFormat()
             let session = try await Transcription.start(
                 inputFormat: format,
-                onPartial: { [weak self] text in self?.interruptionHeard(text, chat: chat) },
-                onProgress: { _ in })
+                onPartial: { [weak self] text in self?.partial(text, chat: chat, answering: answering, question: question) },
+                onProgress: { [weak self] progress in self?.downloadProgress = progress })
             guard !Task.isCancelled else {
                 session.cancel()
-                return nil
+                return
             }
             self.session = session
+            guard !released else {
+                session.cancel()
+                self.session = nil
+                return finishSilently()
+            }
+            listening = true
+            // No pause and no limit ends it: letting go of the shortcut does (`finish`).
             var config = SilenceDetector.Config()
             config.silence = .infinity
             config.wait = .infinity
-            // No limit while the answer goes on; it starts when the user interrupts.
             config.maxPhrase = .infinity
-            guard let recording = try await recorder.record(config, onBuffer: { session.append($0) }) else {
+            let recording = try await recorder.record(config, onBuffer: { session.append($0) })
+            listening = false
+            guard let recording, !Task.isCancelled else {
                 session.cancel()
-                return nil
+                self.session = nil
+                return
             }
-            guard interrupted else {
+            voiceLog.debug("held phrase, duration \(recording.duration), voiced \(recording.voiced)")
+            guard recording.voiced >= SilenceDetector.minimumVoiced else {
                 session.cancel()
+                self.session = nil
                 try? FileManager.default.removeItem(at: recording.url)
-                return nil
+                return finishSilently()
             }
-            // Only the interrupting phrase: Whisper gets its part of the recording, Apple's text loses what came before.
-            if settings.recognitionMode == .whisper {
-                return try await transcribe(VoiceRecorder.trimmed(recording, from: interruptionStart), with: session)
+            let text = try await transcribe(recording, with: session, answering: answering && !question)
+            guard !Task.isCancelled else { return }
+            // Apple heard the whole recording: during an answer only the last utterance is the user's (what came
+            // before a pause was the assistant's voice or the room). Whisper heard only their part once they interrupted.
+            let words = answering && !question && (!interrupted || settings.recognitionMode != .whisper) ? utterance.words(of: text) : text
+            guard PushToTalk.outcome(voiced: recording.voiced, text: words) == .send else { return finishSilently() }
+            if answering, !question, !interrupted {
+                // Words that came only as it was let go: an interruption if they are not the assistant's own voice.
+                guard !stillAnswering(chat) || BargeIn.isMeaningful(heard: words, voiced: recording.voiced, spoken: Speaker.shared.spoken)
+                else { return finishSilently() }
+                interrupt(chat)
             }
-            guard let phrase = try await transcribe(recording, with: session) else { return nil }
-            let words = utterance.words(of: phrase.text)
-            guard SpeechText.isWords(words) else { return nil }
             heard = words
-            return Heard(text: words, audio: nil)
+            await send(words, chat: chat, question: question)
         } catch {
-            return nil
+            listening = false
+            transcribing = false
+            session?.cancel()
+            session = nil
+            if Task.isCancelled || error is CancellationError { return }
+            voiceLog.error("hold failed: \(error.localizedDescription, privacy: .public)")
+            self.error = error.localizedDescription
         }
     }
 
-    /// Live words during an answer: meaningful ones stop the answer and the voice, and the phrase goes on.
-    private func interruptionHeard(_ text: String, chat: Chat.ID) {
-        let now = utterance.update(text, voiced: recorder.voiced, at: recorder.elapsed)
-        utteranceText = now.text
-        if interrupted {
-            heard = now.text
-            followWords(now.text)
+    /// Nothing was said: nothing is sent, and a notch opened only for this folds again.
+    private func finishSilently() {
+        voiceLog.debug("nothing said: nothing sent")
+        listening = false
+        transcribing = false
+        if foldsBack {
+            // Folding cancels the phrase; this one is over already.
+            talk = nil
+            talkID = UUID()
+            foldBack()
+        }
+    }
+
+    /// A notch opened only for a phrase that sent nothing folds again.
+    private var foldsBack: Bool {
+        isExpanded && PushToTalk.foldsBack(openedByPress: openedByPress, outcome: .discard)
+    }
+
+    private func stillAnswering(_ chat: Chat.ID) -> Bool {
+        ChatController.shared.isStreaming(chat) || Speaker.shared.isSpeaking
+    }
+
+    /// Live words while the shortcut is held. During an answer the first meaningful ones (not the assistant's own
+    /// voice) stop it; before that the answer goes on and nothing is shown.
+    private func partial(_ text: String, chat: Chat.ID, answering: Bool, question: Bool) {
+        guard answering else {
+            heard = text
             return
         }
-        guard BargeIn.isMeaningful(heard: now.text, voiced: now.voiced, spoken: Speaker.shared.spoken) else { return }
+        let now = utterance.update(text, voiced: recorder.voiced, at: recorder.elapsed)
+        // The answer ended while the shortcut is held: the words are the user's to see.
+        if !question, !interrupted, !stillAnswering(chat) {
+            heard = now.text
+            return
+        }
+        if interrupted || question {
+            if question, !interrupted, BargeIn.isMeaningful(heard: now.text, voiced: now.voiced, spoken: Speaker.shared.spoken) {
+                // Answering the question out loud: its voice stops, the answer waits for the card.
+                interrupted = true
+                Speaker.shared.stop()
+            }
+            if interrupted { heard = question ? text : now.text }
+            return
+        }
+        guard stillAnswering(chat), BargeIn.isMeaningful(heard: now.text, voiced: now.voiced, spoken: Speaker.shared.spoken) else { return }
         voiceLog.debug("barge-in: \(now.text, privacy: .public)")
+        phraseStart = max(utterance.start - 1.5, 0)
+        interrupt(chat)
+        heard = now.text
+    }
+
+    /// The user talks over the answer: it stops, with its voice and its cards.
+    private func interrupt(_ chat: Chat.ID) {
+        interrupted = true
         Speaker.shared.stop()
         ChatController.shared.stop(chat)
         ApprovalCenter.shared.dismiss(in: chat)
         QuestionCenter.shared.dismiss(in: chat)
-        interruptionStart = max(utterance.start - 1.5, 0)
-        beginInterruptingPhrase(now.text)
     }
 
-    /// The answer is over while the user talks: what they say is the next phrase.
-    private func interruptAtEnd() {
-        voiceLog.debug("still talking as the answer ends")
-        // Words that came lately are this phrase; with none yet, the last few seconds hold its start.
-        let recent = recorder.elapsed - utterance.start < 4 && !utteranceText.isEmpty
-        interruptionStart = max(recent ? utterance.start - 1.5 : recorder.elapsed - 3, 0)
-        beginInterruptingPhrase(recent ? utteranceText : "")
+    /// The phrase goes to the question card waiting for it, or to the chat as the next message.
+    private func send(_ text: String, chat: Chat.ID, question: Bool) async {
+        if question, QuestionCenter.shared.pending[chat] != nil {
+            QuestionCenter.shared.answer(.one(text), in: chat)
+            return
+        }
+        // A stopped answer saves what it wrote first.
+        while ChatController.shared.isStreaming(chat), !Task.isCancelled { try? await Task.sleep(for: .milliseconds(30)) }
+        guard !Task.isCancelled else { return }
+        // The answer it interrupted is over (its watcher has seen it stop): errors of the next one count again.
+        interrupted = false
+        Speaker.shared.resetSpoken()
+        ChatController.shared.send(text, in: chat)
+        guard ChatController.shared.isStreaming(chat) else {
+            error = ChatController.shared.errors[chat]?.localizedDescription
+            return
+        }
+        watchAnswer(chat)
     }
 
-    private func beginInterruptingPhrase(_ text: String) {
-        interrupted = true
-        heard = text
-        phase = .listening(followUp: false)
-        recorder.limitPhrase(SilenceDetector.Config().maxPhrase)
-        followWords(text)
-    }
-
-    /// Waits for the answer; a question card it shows is answered by voice (the notch opens for it).
-    private func waitForAnswer(_ id: Chat.ID) async {
-        while ChatController.shared.isStreaming(id), !Task.isCancelled {
-            // An action to allow: the notch opens for its card.
-            if ApprovalCenter.shared.pending[id] != nil, !isExpanded { NotchPanelController.shared.expand() }
-            if QuestionCenter.shared.pending[id] != nil, !questionListening, !Speaker.shared.isSpeaking {
-                if !isExpanded { NotchPanelController.shared.expand() }
-                questionListening = true
-                Task { [weak self] in
-                    guard let self else { return }
-                    if let heard = await self.hear(followUp: true), !heard.text.isEmpty, QuestionCenter.shared.pending[id] != nil {
-                        QuestionCenter.shared.answer(.one(heard.text), in: id)
-                    }
-                    self.questionListening = false
-                    if ChatController.shared.isStreaming(id) { self.phase = .answering }
+    /// Follows the answer until it is written and spoken.
+    private func watchAnswer(_ chat: Chat.ID) {
+        answerWatch?.cancel()
+        answerWatch = Task { [weak self] in
+            while ChatController.shared.isStreaming(chat), !Task.isCancelled {
+                // An action to allow or a question to answer: the notch opens for its card.
+                if ApprovalCenter.shared.pending[chat] != nil || QuestionCenter.shared.pending[chat] != nil,
+                   self?.isExpanded == false {
+                    NotchPanelController.shared.expand()
                 }
+                try? await Task.sleep(for: .milliseconds(100))
             }
-            try? await Task.sleep(for: .milliseconds(100))
+            guard let self, !Task.isCancelled else { return }
+            // Stopped by the user talking over it: not an error.
+            if let failure = ChatController.shared.errors[chat], !interrupted {
+                error = failure.localizedDescription
+            }
+            if !isExpanded { hasUnreadAnswer = true }
         }
     }
 
-    /// What a phrase gave: its text, and the recording itself with "Audio to the Model".
-    private struct Heard {
-        let text: String
-        let audio: Attachment?
-    }
-
-    /// The pause that ends the phrase follows the words heard so far.
-    private func followWords(_ text: String) {
-        recorder.updateSilence(PhrasePause.seconds(for: text, base: settings.silencePause))
-    }
-
-    /// The text of a recorded phrase (and the recording itself with "Audio to the Model"); nil without words.
-    private func transcribe(_ recording: Recording, with session: any TranscriptionSession) async throws -> Heard? {
-        phase = .transcribing
+    /// The text of a recorded phrase. During an answer, once the user interrupted, Whisper gets only their part.
+    private func transcribe(_ recording: Recording, with session: any TranscriptionSession, answering: Bool) async throws -> String {
+        transcribing = true
+        defer { transcribing = false }
+        var recording = recording
+        if answering, interrupted, settings.recognitionMode == .whisper {
+            recording = VoiceRecorder.trimmed(recording, from: phraseStart)
+        }
         defer { try? FileManager.default.removeItem(at: recording.url) }
         let text = try await session.finish(recording)
         self.session = nil
-        guard !Task.isCancelled else { return nil }
         voiceLog.debug("transcribed: \(text, privacy: .public)")
-        guard SpeechText.isWords(text) else { return nil }
         // Apple alone: a noise phrase from a short burst ("Thank you." for a cough) is not sent.
         if settings.recognitionMode == .builtIn, recording.voiced < 1.5, WhisperFilter.isNoise(text) {
             voiceLog.debug("dropped as noise: \(text, privacy: .public)")
-            return nil
+            return ""
         }
-        heard = text
-        return Heard(text: text, audio: nil)
-    }
-
-    /// Records while the pointer rests on the notch; when it leaves, opens the notch with what was said,
-    /// or drops the recording when nothing was.
-    private func hearWhileHovering() async -> Heard? {
-        let allowed = await VoiceRecorder.requestAccess()
-        guard allowed, !Task.isCancelled else {
-            if !allowed { microphoneDenied = true }
-            return nil
-        }
-        do {
-            let format = try recorder.inputFormat()
-            phase = .listening(followUp: false)
-            heard = ""
-            let session = try await Transcription.start(
-                inputFormat: format,
-                onPartial: { [weak self] text in self?.heard = text },
-                onProgress: { [weak self] progress in self?.downloadProgress = progress })
-            guard !Task.isCancelled, hoverTalking else {
-                session.cancel()
-                return nil
-            }
-            self.session = session
-            // No pause ends it: the pointer leaving does (`finish`).
-            var config = SilenceDetector.Config()
-            config.silence = .infinity
-            config.wait = .infinity
-            guard let recording = try await recorder.record(config, onBuffer: { session.append($0) }) else {
-                session.cancel()
-                self.session = nil
-                return nil
-            }
-            guard HoverTalk.outcome(voiced: recording.voiced) == .open else {
-                voiceLog.debug("hover talk dropped, voiced \(recording.voiced)")
-                session.cancel()
-                self.session = nil
-                try? FileManager.default.removeItem(at: recording.url)
-                return nil
-            }
-            NotchPanelController.shared.expand()
-            return try await transcribe(recording, with: session)
-        } catch {
-            session?.cancel()
-            session = nil
-            if !(Task.isCancelled || error is CancellationError) { self.error = error.localizedDescription }
-            return nil
-        }
-    }
-
-    /// One phrase; nil when nothing was said in time, it was cancelled or it failed (`error`).
-    private func hear(followUp: Bool) async -> Heard? {
-        let allowed = await VoiceRecorder.requestAccess()
-        guard !Task.isCancelled else { return nil }
-        guard allowed else {
-            microphoneDenied = true
-            error = VoiceError.microphoneDenied.localizedDescription
-            return nil
-        }
-        microphoneDenied = false
-        while !Task.isCancelled {
-            do {
-                let format = try recorder.inputFormat()
-                phase = .listening(followUp: followUp)
-                heard = ""
-                let session = try await Transcription.start(
-                    inputFormat: format,
-                    onPartial: { [weak self] text in
-                        voiceLog.debug("partial: \(text, privacy: .public)")
-                        self?.heard = text
-                        self?.followWords(text)
-                    },
-                    onProgress: { [weak self] progress in self?.downloadProgress = progress })
-                guard !Task.isCancelled else {
-                    session.cancel()
-                    return nil
-                }
-                self.session = session
-                var config = SilenceDetector.Config()
-                config.silence = settings.silencePause
-                config.wait = followUp ? settings.followUpWindow : settings.speechWait
-                guard let recording = try await recorder.record(config, onBuffer: { session.append($0) }) else {
-                    session.cancel()
-                    self.session = nil
-                    return nil
-                }
-                voiceLog.debug("phrase ended, duration \(recording.duration), voiced \(recording.voiced)")
-                // A burst of noise: recognisers would make "Thank you." or "." of it. While waiting for a follow-up
-                // it ends the wait; after a click it is ignored.
-                if recording.voiced < SilenceDetector.minimumVoiced {
-                    session.cancel()
-                    self.session = nil
-                    try? FileManager.default.removeItem(at: recording.url)
-                    if followUp { return nil } else { continue }
-                }
-                guard let phrase = try await transcribe(recording, with: session) else {
-                    guard !Task.isCancelled else { return nil }
-                    // Nothing recognised (or only punctuation): listen again in the same way.
-                    if followUp { return nil } else { continue }
-                }
-                return phrase
-            } catch {
-                if Task.isCancelled || error is CancellationError {
-                    session?.cancel()
-                    session = nil
-                    return nil
-                }
-                voiceLog.error("hear failed: \(error.localizedDescription, privacy: .public)")
-                session?.cancel()
-                session = nil
-                self.error = error.localizedDescription
-                return nil
-            }
-        }
-        return nil
+        return text
     }
 }

@@ -15,11 +15,6 @@ final class NotchModel {
     var mood: AssistantAvatar.Mood = .idle
     var wave: Waveform.Mode = .idle
     var level = 0.0
-    /// Tapping the face (expanded).
-    var onAvatarTap: (() -> Void)?
-    /// The pointer rested on the folded notch long enough, and left it.
-    var onHoverTalk: (() -> Void)?
-    var onHoverEnd: (() -> Void)?
     /// The height of the expanded body, measured.
     var contentHeight: CGFloat = 0
     /// How tall the open notch may get on this screen.
@@ -88,7 +83,6 @@ struct NotchView<Content: View>: View {
         HStack(spacing: 0) {
             if state != .closed {
                 AssistantAvatar(mood: model.mood, level: model.level, size: expanded ? 20 : 14)
-                    .onTapGesture { if expanded { model.onAvatarTap?() } }
                     .padding(.leading, expanded ? 10 : 4)
                 Spacer(minLength: model.notchSize.width)
                 Group {

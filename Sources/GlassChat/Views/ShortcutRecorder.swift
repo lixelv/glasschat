@@ -1,24 +1,28 @@
 import AppKit
 import SwiftUI
 
-/// The notch's shortcut in Settings: click, then press the keys; Esc cancels, the cross removes it.
+/// The talk shortcut in Settings: click, then hold modifiers and let go (⌥⌘), or press modifiers with a key;
+/// Esc cancels, the cross removes it.
 struct ShortcutRecorder: View {
     @Bindable private var settings = AppSettings.shared
-    private var hotKey = GlobalHotKey.shared
+    private var talkKey = TalkKey.shared
     @State private var recording = false
     @State private var monitor: Any?
+    /// The most modifiers held together while recording: let go, they are the shortcut.
+    @State private var held: NSEvent.ModifierFlags = []
 
     var body: some View {
-        LabeledContent("Shortcut") {
+        LabeledContent("Hold to Talk") {
             VStack(alignment: .trailing, spacing: 4) {
                 HStack(spacing: 6) {
-                    Button(recording ? "Type a shortcut…" : settings.assistantShortcut?.display ?? "None") {
+                    Button(recording ? (held.isEmpty ? "Type a shortcut…" : Shortcut(keyCode: nil, modifiers: held, key: "").display)
+                           : settings.talkShortcut?.display ?? "None") {
                         recording ? stop() : start()
                     }
                     .frame(minWidth: 120)
-                    if settings.assistantShortcut != nil, !recording {
+                    if settings.talkShortcut != nil, !recording {
                         Button("Remove Shortcut", systemImage: "xmark.circle.fill") {
-                            settings.assistantShortcut = nil
+                            settings.talkShortcut = nil
                             AppDelegate.registerShortcut()
                         }
                         .labelStyle(.iconOnly)
@@ -26,10 +30,14 @@ struct ShortcutRecorder: View {
                         .foregroundStyle(.secondary)
                     }
                 }
-                if hotKey.conflict {
-                    Text("Another app or macOS uses this shortcut: choose another.")
-                        .font(.caption)
-                        .foregroundStyle(.orange)
+                if settings.talkShortcut != nil, !talkKey.trusted {
+                    HStack(spacing: 6) {
+                        Text("Needs Accessibility access")
+                            .font(.caption)
+                            .foregroundStyle(.orange)
+                        Button("Open Settings") { talkKey.openAccessibilitySettings() }
+                            .controlSize(.small)
+                    }
                 }
             }
         }
@@ -38,18 +46,33 @@ struct ShortcutRecorder: View {
 
     private func start() {
         recording = true
-        // The current shortcut must reach this field, not open the notch.
-        GlobalHotKey.shared.unregister()
-        monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+        held = []
+        // The current shortcut must reach this field, not start listening.
+        TalkKey.shared.unregister()
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
+            let modifiers = event.modifierFlags.intersection(Shortcut.relevant)
+            if event.type == .flagsChanged {
+                if modifiers.isStrictSuperset(of: held) || held.isEmpty {
+                    held = modifiers
+                } else if !modifiers.isSuperset(of: held) {
+                    // A modifier let go: the most held together are the shortcut, if they make one.
+                    if Shortcut.isValid(modifiers: held, keyCode: nil) {
+                        settings.talkShortcut = Shortcut(keyCode: nil, modifiers: held, key: "")
+                        stop()
+                    } else if modifiers.isEmpty {
+                        held = []
+                    }
+                }
+                return event
+            }
             let keyCode = UInt32(event.keyCode)
-            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-            if event.keyCode == 53, modifiers.intersection([.command, .option, .control, .shift]).isEmpty {
+            if event.keyCode == 53, modifiers.isEmpty {
                 stop()
                 return nil
             }
             guard Shortcut.isValid(modifiers: modifiers, keyCode: keyCode) else { return nil }
             let key = Shortcut.keyName(keyCode: keyCode, characters: event.charactersIgnoringModifiers)
-            settings.assistantShortcut = Shortcut(keyCode: keyCode, modifiers: modifiers, key: key)
+            settings.talkShortcut = Shortcut(keyCode: keyCode, modifiers: modifiers, key: key)
             stop()
             return nil
         }
@@ -60,6 +83,7 @@ struct ShortcutRecorder: View {
         monitor = nil
         guard recording else { return }
         recording = false
+        held = []
         AppDelegate.registerShortcut()
     }
 }

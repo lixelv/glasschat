@@ -3,7 +3,7 @@ import Foundation
 /// The built-in tools in parts the user switches on and off one by one ("App" in the Tools popover).
 /// `necessary` (the two searches, app_say and app_ask_user) is always on and not shown.
 enum AppModule: String, CaseIterable, Sendable {
-    case necessary, files, user, chats, models, mcp, visualize
+    case necessary, files, user, clipboard, chats, models, mcp, visualize
 
     /// Its switch in `AppSettings.disabledTools`.
     var key: String { AppTool.key + "." + rawValue }
@@ -18,6 +18,7 @@ enum AppModule: String, CaseIterable, Sendable {
         case .necessary: "Necessary"
         case .files: "Files & Terminal"
         case .user: "Notifications & Alerts"
+        case .clipboard: "Clipboard"
         case .chats: "Chats"
         case .models: "Models"
         case .mcp: "MCP Servers"
@@ -30,6 +31,7 @@ enum AppModule: String, CaseIterable, Sendable {
         case .necessary: "Tool search, speaking and questions with suggested answers"
         case .files: "Read, write and edit files; run commands in zsh"
         case .user: "Notifications and alert windows"
+        case .clipboard: "Read and replace the clipboard's text"
         case .chats: "List, create, switch, rename and delete chats"
         case .models: "List models and change a chat's model"
         case .mcp: "Switch MCP servers and edit their registry"

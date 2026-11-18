@@ -1,19 +1,20 @@
 import AppKit
 import Carbon.HIToolbox
 
-/// A key with modifiers that calls the notch assistant from any app.
+/// The keys held to talk to the notch assistant from any app: modifiers alone (⌥⌘) or with a key.
 struct Shortcut: Codable, Equatable, Sendable {
-    var keyCode: UInt32
+    /// nil: the modifiers alone.
+    var keyCode: UInt32?
     var command: Bool
     var shift: Bool
     var option: Bool
     var control: Bool
-    /// What the key shows ("Space", "K"), kept from when it was recorded.
+    /// What the key shows ("Space", "K"), kept from when it was recorded; empty for modifiers alone.
     var key: String
 
-    static let standard = Shortcut(keyCode: UInt32(kVK_Space), modifiers: [.option, .shift], key: "Space")
+    static let standard = Shortcut(keyCode: nil, modifiers: [.option, .command], key: "")
 
-    init(keyCode: UInt32, modifiers: NSEvent.ModifierFlags, key: String) {
+    init(keyCode: UInt32?, modifiers: NSEvent.ModifierFlags, key: String) {
         self.keyCode = keyCode
         command = modifiers.contains(.command)
         shift = modifiers.contains(.shift)
@@ -22,15 +23,17 @@ struct Shortcut: Codable, Equatable, Sendable {
         self.key = key
     }
 
-    /// The modifiers as `RegisterEventHotKey` wants them.
-    var carbonModifiers: UInt32 {
-        var flags = 0
-        if command { flags |= cmdKey }
-        if shift { flags |= shiftKey }
-        if option { flags |= optionKey }
-        if control { flags |= controlKey }
-        return UInt32(flags)
+    var modifiers: NSEvent.ModifierFlags {
+        var flags: NSEvent.ModifierFlags = []
+        if command { flags.insert(.command) }
+        if shift { flags.insert(.shift) }
+        if option { flags.insert(.option) }
+        if control { flags.insert(.control) }
+        return flags
     }
+
+    /// The four modifiers a shortcut is made of (not Caps Lock, Fn or the numeric pad).
+    static let relevant: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
 
     /// "⌃ ⌥ ⇧ ⌘ K", in the order macOS menus use.
     var display: String {
@@ -39,7 +42,7 @@ struct Shortcut: Codable, Equatable, Sendable {
         if option { parts.append("⌥") }
         if shift { parts.append("⇧") }
         if command { parts.append("⌘") }
-        return (parts + [key]).joined(separator: " ")
+        return (keyCode == nil || key.isEmpty ? parts : parts + [key]).joined(separator: " ")
     }
 
     private static let names: [Int: String] = [
@@ -53,9 +56,12 @@ struct Shortcut: Codable, Equatable, Sendable {
         names[Int(keyCode)] ?? (characters ?? "").uppercased()
     }
 
-    /// A key needs a modifier to be a shortcut, except the function keys.
-    static func isValid(modifiers: NSEvent.ModifierFlags, keyCode: UInt32) -> Bool {
+    /// Modifiers alone need two of them (one is pressed all the time); a key needs a modifier, except the
+    /// function keys.
+    static func isValid(modifiers: NSEvent.ModifierFlags, keyCode: UInt32?) -> Bool {
+        let count = [NSEvent.ModifierFlags.command, .option, .control, .shift].filter(modifiers.contains).count
+        guard let keyCode else { return count >= 2 }
         let functionKeys = [kVK_F1, kVK_F2, kVK_F3, kVK_F4, kVK_F5, kVK_F6, kVK_F7, kVK_F8, kVK_F9, kVK_F10, kVK_F11, kVK_F12]
-        return !modifiers.intersection([.command, .option, .control, .shift]).isEmpty || functionKeys.contains(Int(keyCode))
+        return count >= 1 || functionKeys.contains(Int(keyCode))
     }
 }

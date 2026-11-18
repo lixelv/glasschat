@@ -39,27 +39,15 @@ final class AppSettings {
     // MARK: Notch assistant
 
     var assistantEnabled: Bool { didSet { defaults.set(assistantEnabled, forKey: "assistantEnabled") } }
-    /// Resting the pointer on the folded notch records until it leaves.
-    var hoverToTalk: Bool { didSet { defaults.set(hoverToTalk, forKey: "hoverToTalk") } }
-    /// Talking over an answer stops it and sends the new phrase.
-    var interruptBySpeaking: Bool { didSet { defaults.set(interruptBySpeaking, forKey: "interruptBySpeaking") } }
-    /// Seconds the pointer rests on the notch before it records.
-    var hoverDelay: Double { didSet { defaults.set(hoverDelay, forKey: "hoverDelay") } }
-    /// The shortcut that opens the notch from any app; nil: none.
-    var assistantShortcut: Shortcut? {
+    /// The keys held to talk to the notch from any app; nil: none.
+    var talkShortcut: Shortcut? {
         didSet {
-            if let assistantShortcut { defaults.set(try? JSONEncoder().encode(assistantShortcut), forKey: "assistantShortcut") }
-            else { defaults.set("off", forKey: "assistantShortcut") }
+            if let talkShortcut { defaults.set(try? JSONEncoder().encode(talkShortcut), forKey: "talkShortcut") }
+            else { defaults.set("off", forKey: "talkShortcut") }
         }
     }
     /// A locale identifier for Apple recognition; empty: the system's.
     var transcriptionLanguage: String { didSet { defaults.set(transcriptionLanguage, forKey: "transcriptionLanguage") } }
-    /// Seconds of silence that end a phrase.
-    var silencePause: Double { didSet { defaults.set(silencePause, forKey: "silencePause") } }
-    /// Seconds the assistant keeps listening after an answer.
-    var followUpWindow: Double { didSet { defaults.set(followUpWindow, forKey: "followUpWindow") } }
-    /// Seconds it waits for speech after a click.
-    var speechWait: Double { didSet { defaults.set(speechWait, forKey: "speechWait") } }
     /// Messages of the assistant chat sent to the model; 0: all.
     var assistantContextLimit: Int { didSet { defaults.set(assistantContextLimit, forKey: "assistantContextLimit") } }
     /// An `AVSpeechSynthesisVoice` identifier; empty: the voice of the system language.
@@ -90,18 +78,13 @@ final class AppSettings {
         confirmActions = defaults.string(forKey: "confirmActions").flatMap(ConfirmMode.init(rawValue:)) ?? .default
         recognitionMode = RecognitionMode.migrated(defaults.string(forKey: "recognitionMode"))
         assistantEnabled = defaults.object(forKey: "assistantEnabled") as? Bool ?? true
-        hoverToTalk = defaults.object(forKey: "hoverToTalk") as? Bool ?? true
-        interruptBySpeaking = defaults.object(forKey: "interruptBySpeaking") as? Bool ?? true
-        hoverDelay = defaults.object(forKey: "hoverDelay") as? Double ?? 0.3
-        switch defaults.object(forKey: "assistantShortcut") {
-        case let data as Data: assistantShortcut = (try? JSONDecoder().decode(Shortcut.self, from: data)) ?? .standard
-        case "off" as String: assistantShortcut = nil
-        default: assistantShortcut = .standard
+        // The old open-the-notch shortcut ("assistantShortcut") is not carried over: this one is held to talk.
+        switch defaults.object(forKey: "talkShortcut") {
+        case let data as Data: talkShortcut = (try? JSONDecoder().decode(Shortcut.self, from: data)) ?? .standard
+        case "off" as String: talkShortcut = nil
+        default: talkShortcut = .standard
         }
         transcriptionLanguage = defaults.string(forKey: "transcriptionLanguage") ?? ""
-        silencePause = defaults.object(forKey: "silencePause") as? Double ?? 0.7
-        followUpWindow = defaults.object(forKey: "followUpWindow") as? Double ?? 15
-        speechWait = defaults.object(forKey: "speechWait") as? Double ?? 8
         assistantContextLimit = defaults.object(forKey: "assistantContextLimit") as? Int ?? 16
         systemVoice = defaults.string(forKey: "systemVoice") ?? ""
         supertonicVoice = defaults.string(forKey: "supertonicVoice") ?? "F1"

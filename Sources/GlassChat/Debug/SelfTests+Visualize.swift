@@ -50,7 +50,7 @@ extension SelfTests {
         expect(AppModule.of("glasschat__app_visualize") == .visualize && AppModule.of("glasschat___app_install_library") == .visualize
                && AppModule.of("glasschat___app_remove_library") == .visualize, "visualize tools sit in their module")
         expect(AssistantPrompt.standard.contains("glasschat__app_visualize"), "the assistant is told to visualize")
-        expect(AssistantPrompt.previous.count == 3, "the former standard prompts are replaced")
+        expect(AssistantPrompt.previous.count == 4, "the former standard prompts are replaced")
 
         // A visualize call in the chat becomes what is drawn; other calls do not.
         var call = ToolCall(id: "c1", name: "glasschat__app_visualize",

@@ -7,7 +7,6 @@ import SwiftUI
 struct AssistantSettings: View {
     @Bindable private var settings = AppSettings.shared
     @State private var locales: [Locale] = []
-    @State private var advanced = false
 
     var body: some View {
         Form {
@@ -30,15 +29,10 @@ struct AssistantSettings: View {
                     }
                 ShortcutRecorder()
                     .disabled(!settings.assistantEnabled)
-                Toggle("Talk while hovering the notch", isOn: $settings.hoverToTalk)
-                    .disabled(!settings.assistantEnabled)
-                Toggle("Interrupt by speaking", isOn: $settings.interruptBySpeaking)
-                    .disabled(!settings.assistantEnabled)
-                    .help("Talking over an answer stops it and sends what you say. macOS echo cancellation keeps the assistant from hearing itself.")
             } header: {
                 Text("Notch Assistant")
             } footer: {
-                footer("Click the notch, press the shortcut, or rest the pointer on it and talk (moving away sends what you said). While the assistant listens, thinks or speaks, Esc, the shortcut or Stop folds it; otherwise a click elsewhere does too. Closing the window keeps GlassChat running while this is on.")
+                footer("Hold the shortcut and talk; letting it go sends what you said (nothing, when you said nothing). Held during an answer, the answer goes on until you start talking. Esc or a click elsewhere folds the notch. Closing the window keeps GlassChat running while this is on.")
             }
 
             Section {
@@ -57,12 +51,11 @@ struct AssistantSettings: View {
                             .tag(locale.identifier)
                     }
                 }
-                NumberField("Pause that ends a phrase", value: $settings.silencePause, range: 0.3...3, step: 0.1, unit: "s")
                 IntField("Messages sent to the model", value: $settings.assistantContextLimit, range: 0...200)
             } header: {
                 Text("Listening")
             } footer: {
-                footer("The pause is shorter when your words already form a sentence, longer when they are plainly unfinished. System Languages: Apple listens in each language of System Settings (up to three). Messages 0: the whole chat.")
+                footer("System Languages: Apple listens in each language of System Settings (up to three). Messages 0: the whole chat.")
             }
 
             Section {
@@ -106,17 +99,6 @@ struct AssistantSettings: View {
                 Text("Assistant Prompt")
             } footer: {
                 footer("Sent after the system prompt in the assistant's chat.")
-            }
-
-            Section {
-                DisclosureGroup("Advanced", isExpanded: $advanced) {
-                    NumberField("Wait for speech after a click", value: $settings.speechWait, range: 2...30, step: 1, unit: "s")
-                    NumberField("Rest on the notch before talking", value: $settings.hoverDelay, range: 0.1...2, step: 0.1, unit: "s")
-                    NumberField("Keep listening after an answer", value: $settings.followUpWindow, range: 0...60, step: 1, unit: "s")
-                    Text("0 s: after an answer the assistant waits for a click or the shortcut.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
             }
         }
         .formStyle(.grouped)

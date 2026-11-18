@@ -2,10 +2,12 @@ import AppKit
 import UserNotifications
 
 /// The built-in "App" tools: the model talks to the user and works the app — notifications, an alert window,
-/// chats, models and MCP servers. Switching chats and models waits until the answer that asked for it is over.
+/// the clipboard, chats, models and MCP servers. Switching chats and models waits until the answer that asked for it is over.
 enum AppTool: String, CaseIterable, Sendable {
     case notify = "_app_notify"
     case alert = "_app_alert"
+    case readClipboard = "_app_read_clipboard"
+    case writeClipboard = "_app_write_clipboard"
     case listChats = "_app_list_chats"
     case createChat = "_app_create_chat"
     case switchChat = "_app_switch_chat"
@@ -34,6 +36,7 @@ enum AppTool: String, CaseIterable, Sendable {
         case .say, .askUser: .necessary
         case .read, .write, .edit, .bash: .files
         case .notify, .alert: .user
+        case .readClipboard, .writeClipboard: .clipboard
         case .listChats, .createChat, .switchChat, .renameChat, .deleteChat: .chats
         case .listModels, .setModel: .models
         case .listMCP, .enableMCP, .disableMCP: .mcp
@@ -49,6 +52,8 @@ enum AppTool: String, CaseIterable, Sendable {
         case .removeLibrary: "Remove a library of app_visualize by its name."
         case .notify: "Show a macOS notification (top right of the screen) with a title and a text."
         case .alert: "Open an alert window the user must close (for something they need to act on). Returns when they close it."
+        case .readClipboard: "Read the text on the clipboard. Use it only when the user asks to (\"what did I copy\", \"translate what's on the clipboard\"); never look at it on your own."
+        case .writeClipboard: "Put a text on the clipboard, replacing what is there. Use it only when the user asks to copy something; never change it on your own."
         case .listChats: "List the chats: id, title, model, number of messages; the current one is marked."
         case .createChat: "Create a new empty chat (it does not switch to it). Returns its id."
         case .switchChat: "Show another chat in the window. Takes effect when this answer is finished."
@@ -80,7 +85,8 @@ enum AppTool: String, CaseIterable, Sendable {
             return object(["title": string("Title"), "message": string("Text, may hold several lines"),
                            "style": .object(["type": .string("string"), "enum": .array(["info", "warning", "critical"].map(JSONValue.string))])],
                           ["title", "message"])
-        case .listChats, .listModels, .listMCP: return object([:], [])
+        case .listChats, .listModels, .listMCP, .readClipboard: return object([:], [])
+        case .writeClipboard: return object(["text": string("The text to put on the clipboard")], ["text"])
         case .createChat: return object(["title": string("Title (optional)"), "model": string("Model id (optional; else the current default)")], [])
         case .switchChat, .deleteChat: return object(["chat_id": chatID], ["chat_id"])
         case .renameChat: return object(["chat_id": chatID, "title": string("New title")], ["chat_id", "title"])
@@ -181,6 +187,16 @@ enum AppTool: String, CaseIterable, Sendable {
             alert.runModal()
             return "The user read the alert and closed it."
 
+        case .readClipboard:
+            return NSPasteboard.general.string(forType: .string)?.nilIfEmpty ?? "The clipboard has no text."
+
+        case .writeClipboard:
+            // Copied as given, spaces and new lines included.
+            guard let copied = args["text"]?.string, !copied.isEmpty else { throw MCPError(message: "A \"text\" is needed.") }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(copied, forType: .string)
+            return "Copied to the clipboard."
+
         case .listChats:
             let chats: [JSONValue] = store.chats.sorted { $0.updatedAt > $1.updatedAt }.map { chat in
                 .object([
@@ -260,8 +276,8 @@ enum AppTool: String, CaseIterable, Sendable {
 
         case .say:
             guard let words = text("text") else { throw MCPError(message: "A \"text\" is needed.") }
-            // In the notch the user may talk over it: the voice goes through the echo canceller.
-            let interruptible = chatID == AppSettings.shared.assistantChatID && AppSettings.shared.interruptBySpeaking
+            // In the notch the user may hold the shortcut and talk over it: the voice goes through the echo canceller.
+            let interruptible = chatID == AppSettings.shared.assistantChatID
             return try await Speaker.shared.speak(words, interruptible: interruptible) ? "Spoken." : "Stopped by the user."
 
         case .visualize:

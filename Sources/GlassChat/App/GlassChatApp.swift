@@ -66,7 +66,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NotchPanelController.shared.content = { AnyView(AssistantNotchContent()) }
         AssistantController.shared.attach(NotchPanelController.shared.model)
         if AppSettings.shared.assistantEnabled { NotchPanelController.shared.install() }
-        GlobalHotKey.shared.action = { NotchPanelController.shared.toggle() }
+        TalkKey.shared.onPress = { AssistantController.shared.talkPressed() }
+        TalkKey.shared.onRelease = { AssistantController.shared.talkReleased() }
+        TalkKey.shared.onCancel = { AssistantController.shared.talkCancelled() }
+        TalkKey.shared.onEscape = {
+            if NotchPanelController.shared.model.isExpanded { NotchPanelController.shared.collapse() }
+        }
         Self.registerShortcut()
         #if DEBUG
         if ProcessInfo.processInfo.environment["GLASSCHAT_NOTCH_DEMO"] == "1" { NotchDemo.start() }
@@ -79,10 +84,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    /// The notch's shortcut, while the notch is on.
+    /// The talk shortcut, while the notch is on.
     static func registerShortcut() {
         let settings = AppSettings.shared
-        GlobalHotKey.shared.register(settings.assistantEnabled ? settings.assistantShortcut : nil)
+        TalkKey.shared.register(settings.assistantEnabled ? settings.talkShortcut : nil)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
