@@ -10,9 +10,10 @@ struct ChatView: View {
     @State private var composerHeight: CGFloat = 46
     @State private var showPrompt = false
     @State private var viewportHeight: CGFloat = 0
-    /// Whether the list is scrolled to its end: only then does a streaming answer keep it there.
-    @State private var atBottom = true
-    private static let bottomID = "bottom"
+    /// Whether the list keeps to its end as the answer grows; scrolling up stops it, back to the end resumes it.
+    @State private var following = true
+    @State private var position = ScrollPosition(edge: .bottom)
+    @State private var scrollPhase: ScrollPhase = .idle
     private var store = ChatStore.shared
 
     init(chatID: Chat.ID) {
@@ -28,42 +29,48 @@ struct ChatView: View {
                 EmptyChat(model: chat.map { $0.model.isEmpty ? AppSettings.shared.defaultModel : $0.model } ?? "")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        // Messages start at the top; the column is at least as tall as the view,
-                        // so the ScrollView never has bare space of its own (it lit up under the pointer).
-                        // A plain VStack: a lazy one re-estimated the heights of rows while text streamed in,
-                        // and the list jumped.
-                        VStack(spacing: 18) {
-                            ForEach(messages) { message in
-                                MessageRow(message: message, chatID: chatID)
-                                    .id(message.id)
-                            }
-                            Color.clear.frame(height: 1).id(Self.bottomID)
+                ScrollView {
+                    // Messages start at the top; the column is at least as tall as the view,
+                    // so the ScrollView never has bare space of its own (it lit up under the pointer).
+                    // A plain VStack: a lazy one re-estimated the heights of rows while text streamed in,
+                    // and the list jumped.
+                    VStack(spacing: 18) {
+                        ForEach(messages) { message in
+                            MessageRow(message: message, chatID: chatID)
+                                .id(message.id)
                         }
-                        .frame(maxWidth: 760)
-                        .frame(maxWidth: .infinity, minHeight: viewportHeight, alignment: .top)
-                        .padding(.horizontal, 24)
-                        .padding(.top, 20)
-                        .padding(.bottom, 12)
-                        .contentShape(.rect)
                     }
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height - 32 } action: { viewportHeight = max($0, 0) }
-                    .onScrollGeometryChange(for: Bool.self) { geometry in
-                        geometry.contentOffset.y + geometry.containerSize.height >= geometry.contentSize.height - 40
-                    } action: { _, bottom in
-                        atBottom = bottom
+                    .frame(maxWidth: 760)
+                    .frame(maxWidth: .infinity, minHeight: viewportHeight, alignment: .top)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 20)
+                    .padding(.bottom, 12)
+                    .contentShape(.rect)
+                }
+                .scrollPosition($position)
+                .onGeometryChange(for: CGFloat.self) { $0.size.height - 32 } action: { viewportHeight = max($0, 0) }
+                // Only your own scrolling switches following. The answer's height is not steady while it
+                // streams (formulas and code blocks are laid out again, tool cards come in), and the scroll
+                // view moves its offset by itself when it shrinks; reading that as "scrolled away" stopped
+                // the list from following, and the answer ran on out of sight below.
+                .onScrollPhaseChange { old, phase, context in
+                    scrollPhase = phase
+                    if phase.isScrolling || old.isScrolling {
+                        following = context.geometry.distanceToBottom <= 40
                     }
-                    .onAppear { proxy.scrollTo(Self.bottomID, anchor: .bottom) }
-                    // A new message (the one you sent): go to the end.
-                    .onChange(of: messages.count) {
-                        atBottom = true
-                        withAnimation(.smooth) { proxy.scrollTo(Self.bottomID, anchor: .bottom) }
+                }
+                .onScrollGeometryChange(for: CGFloat.self) { $0.distanceToBottom } action: { _, distance in
+                    if scrollPhase.isScrolling {
+                        following = distance <= 40
+                    } else if following, scrollPhase == .idle, distance > 0.5 {
+                        position.scrollTo(edge: .bottom)
                     }
-                    // New text: follow it only while you are at the end; scrolling up stops following.
-                    .onChange(of: Self.streamKey(messages.last)) {
-                        if atBottom, controller.isStreaming(chatID) { proxy.scrollTo(Self.bottomID, anchor: .bottom) }
-                    }
+                }
+                .onAppear { position.scrollTo(edge: .bottom) }
+                // A new message (the one you sent): go to the end and follow the answer.
+                .onChange(of: messages.count) {
+                    following = true
+                    withAnimation(.smooth) { position.scrollTo(edge: .bottom) }
                 }
                 .scrollContentBackground(.hidden)
                 .scrollEdgeEffectStyle(.soft, for: .top)
@@ -120,12 +127,6 @@ struct ChatView: View {
                     }
             }
         }
-    }
-
-    /// Changes whenever the last answer grows: its text, a step, a tool result.
-    private static func streamKey(_ message: Message?) -> Int {
-        guard let message else { return 0 }
-        return message.content.count + message.steps.reduce(0) { $0 + $1.text.count + $1.calls.filter { $0.result != nil }.count + 1 }
     }
 
     private func send() {
@@ -193,4 +194,16 @@ struct ChatPromptEditor: View {
         }
         .padding(16)
     }
+}
+
+private extension ScrollGeometry {
+    /// How far the visible part is from the end of the content.
+    var distanceToBottom: CGFloat {
+        contentSize.height + contentInsets.bottom - (contentOffset.y + containerSize.height)
+    }
+}
+
+private extension ScrollPhase {
+    /// You are moving the list: dragging, flicking, or it still glides after your flick.
+    var isScrolling: Bool { self == .interacting || self == .decelerating || self == .tracking }
 }
