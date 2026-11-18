@@ -121,17 +121,27 @@ struct RecognitionLane {
 @MainActor
 final class AppleTranscription: TranscriptionSession {
     private let lanes: [Lane]
+    private let live: LiveScores
     /// The language of the surest text, once finished.
     private(set) var language: String?
 
-    private struct Lane {
+    /// The most a language may take to finish its text once the phrase is over; after it, what it showed stands.
+    static let finishDeadline: Double = 0.6
+
+    /// The surest text shown so far (before `finish`), with its language.
+    var liveBest: RecognitionLane.Score? { live.best }
+
+    private struct Lane: Sendable {
+        /// Its place among the languages asked for (and in the live scores).
+        let index: Int
         let analyzer: SpeechAnalyzer
         let feeder: Feeder
         let results: Task<RecognitionLane.Score, Error>
     }
 
-    private init(lanes: [Lane]) {
+    private init(lanes: [Lane], live: LiveScores) {
         self.lanes = lanes
+        self.live = live
     }
 
     static func start(locales: [Locale], onPartial: @escaping @MainActor (String) -> Void,
@@ -147,7 +157,7 @@ final class AppleTranscription: TranscriptionSession {
             }
         }
         guard !lanes.isEmpty else { throw lastError ?? VoiceError.languageUnsupported(locales.first?.identifier ?? "") }
-        return AppleTranscription(lanes: lanes)
+        return AppleTranscription(lanes: lanes, live: live)
     }
 
     private static func lane(_ locale: Locale, index: Int, live: LiveScores,
@@ -219,20 +229,28 @@ final class AppleTranscription: TranscriptionSession {
             results.cancel()
             throw VoiceError.engine(error.localizedDescription)
         }
-        return Lane(analyzer: analyzer, feeder: feeder, results: results)
+        return Lane(index: index, analyzer: analyzer, feeder: feeder, results: results)
     }
 
     nonisolated func append(_ buffer: AVAudioPCMBuffer) {
         for lane in lanes { lane.feeder.append(buffer) }
     }
 
+    /// Every language finishes at once, and none for longer than `finishDeadline`: Apple's finalizing can take
+    /// seconds, and the text it showed live is nearly always the final one already.
     func finish(_ recording: Recording) async throws -> String {
-        var scores: [RecognitionLane.Score] = []
+        let started = Date.now
+        for lane in lanes { lane.feeder.finish() }
+        var pending: [Task<RecognitionLane.Score?, Never>] = []
         for lane in lanes {
-            lane.feeder.finish()
-            try? await lane.analyzer.finalizeAndFinishThroughEndOfInput()
-            if let score = try? await lane.results.value { scores.append(score) }
+            pending.append(Task { @MainActor in await Self.finalScore(lane, within: Self.finishDeadline) })
         }
+        var scores: [RecognitionLane.Score] = []
+        for (lane, task) in zip(lanes, pending) {
+            if let score = await task.value { scores.append(score) }
+            else { scores.append(live.score(lane.index)) }
+        }
+        voiceLog.debug("apple finished in \(Date.now.timeIntervalSince(started), format: .fixed(precision: 2))s")
         let best = RecognitionLane.best(scores)
         language = best?.language
         return best?.text.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -245,6 +263,22 @@ final class AppleTranscription: TranscriptionSession {
             let analyzer = lane.analyzer
             Task { await analyzer.cancelAndFinishNow() }
         }
+    }
+
+    /// A language's final text, or nil when it did not come within `seconds` (that language is then stopped).
+    private static func finalScore(_ lane: Lane, within seconds: Double) async -> RecognitionLane.Score? {
+        let finishing = Task { () -> RecognitionLane.Score? in
+            try? await lane.analyzer.finalizeAndFinishThroughEndOfInput()
+            return try? await lane.results.value
+        }
+        guard let score = await value(of: finishing, timeout: seconds) else {
+            voiceLog.debug("a language did not finish in time: its live text stands")
+            lane.results.cancel()
+            let analyzer = lane.analyzer
+            Task { await analyzer.cancelAndFinishNow() }
+            return nil
+        }
+        return score
     }
 
     /// The live text of every language; the surest one is shown.
@@ -262,6 +296,10 @@ final class AppleTranscription: TranscriptionSession {
             scores[index] = score
             if let best = RecognitionLane.best(scores) { onPartial(best.text) }
         }
+
+        func score(_ index: Int) -> RecognitionLane.Score { scores[index] }
+
+        var best: RecognitionLane.Score? { RecognitionLane.best(scores) }
     }
 
     /// Converts the microphone buffers to the analyzer's format and hands them on; used on the audio thread.
@@ -329,13 +367,17 @@ final class FinalTranscription: TranscriptionSession {
         fallback?.append(buffer)
     }
 
+    /// Whisper starts at once, told the language of Apple's live text; Apple finishes meanwhile.
     func finish(_ recording: Recording) async throws -> String {
-        let apple = try? await fallback?.finish(recording)
-        let language = WhisperLanguage.hint(appleText: apple, appleLanguage: fallback?.language)
+        let started = Date.now
+        let live = fallback?.liveBest
+        let language = WhisperLanguage.hint(appleText: live?.text, appleLanguage: live?.language)
         voiceLog.debug("whisper language: \(language ?? "detect", privacy: .public)")
         let transcribe = transcribe
         let task = Task { try await transcribe(recording, language) }
         self.task = task
+        let apple = try? await fallback?.finish(recording)
+        defer { voiceLog.debug("whisper finished in \(Date.now.timeIntervalSince(started), format: .fixed(precision: 2))s") }
         do {
             let text = try await task.value.trimmingCharacters(in: .whitespacesAndNewlines)
             // Apple heard no words (or a known noise phrase without Apple): nothing was said.

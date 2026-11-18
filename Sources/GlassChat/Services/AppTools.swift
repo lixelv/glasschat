@@ -20,6 +20,7 @@ enum AppTool: String, CaseIterable, Sendable {
     case disableMCP = "_app_disable_mcp"
     case say = "app_say"
     case askUser = "app_ask_user"
+    case expandNotch = "app_expand_notch"
     case read = "app_read"
     case write = "app_write"
     case edit = "app_edit"
@@ -33,7 +34,7 @@ enum AppTool: String, CaseIterable, Sendable {
 
     var module: AppModule {
         switch self {
-        case .say, .askUser: .necessary
+        case .say, .askUser, .expandNotch: .necessary
         case .read, .write, .edit, .bash: .files
         case .notify, .alert: .user
         case .readClipboard, .writeClipboard: .clipboard
@@ -70,6 +71,7 @@ enum AppTool: String, CaseIterable, Sendable {
         case .bash: "Run a command in zsh on this Mac (a login shell, so the user's PATH). The working folder starts at the home folder and a cd is remembered for this chat. Returns stdout and stderr (cut at 30000 characters) and the exit code. Timeout 120 s by default, at most 600 s."
         case .askUser: "Ask 1-4 questions with answer options; waits for the user's pick, reply or skip."
         case .say: "Say a text aloud to the user (the macOS voice, or the TTS model from Settings). Returns when it has been spoken."
+        case .expandNotch: "Notch assistant only: open the compact notch into the full panel, so the user can see the text you write and the visualizations you show from now on. Call it before writing or showing anything the user should see."
         }
     }
 
@@ -85,7 +87,7 @@ enum AppTool: String, CaseIterable, Sendable {
             return object(["title": string("Title"), "message": string("Text, may hold several lines"),
                            "style": .object(["type": .string("string"), "enum": .array(["info", "warning", "critical"].map(JSONValue.string))])],
                           ["title", "message"])
-        case .listChats, .listModels, .listMCP, .readClipboard: return object([:], [])
+        case .listChats, .listModels, .listMCP, .readClipboard, .expandNotch: return object([:], [])
         case .writeClipboard: return object(["text": string("The text to put on the clipboard")], ["text"])
         case .createChat: return object(["title": string("Title (optional)"), "model": string("Model id (optional; else the current default)")], [])
         case .switchChat, .deleteChat: return object(["chat_id": chatID], ["chat_id"])
@@ -276,9 +278,21 @@ enum AppTool: String, CaseIterable, Sendable {
 
         case .say:
             guard let words = text("text") else { throw MCPError(message: "A \"text\" is needed.") }
+            // The user started talking again: the rest of this answer is not said aloud.
+            if chatID == AppSettings.shared.assistantChatID, AssistantController.shared.hushed {
+                return "Not spoken: the user started talking again."
+            }
             // In the notch the user may hold the shortcut and talk over it: the voice goes through the echo canceller.
             let interruptible = chatID == AppSettings.shared.assistantChatID
             return try await Speaker.shared.speak(words, interruptible: interruptible) ? "Spoken." : "Stopped by the user."
+
+        case .expandNotch:
+            guard chatID == AppSettings.shared.assistantChatID else {
+                return "This chat is in the window: the user already sees what you write."
+            }
+            if NotchPanelController.shared.model.isExpanded { return "The notch is already open: the user sees what you write." }
+            AssistantController.shared.expandForAnswer()
+            return "The notch is open: the user now sees what you write and show."
 
         case .visualize:
             guard let html = args["html"]?.string, !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {

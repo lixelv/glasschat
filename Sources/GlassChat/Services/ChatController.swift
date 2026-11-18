@@ -30,7 +30,8 @@ final class ChatController {
     /// The most rounds of tool calls in one answer.
     static let maxToolRounds = 20
 
-    func send(_ text: String, attachments: [Attachment] = [], in id: Chat.ID) {
+    /// `surface`: where the notch assistant's chat is seen for this answer (nil: in the window).
+    func send(_ text: String, attachments: [Attachment] = [], in id: Chat.ID, surface: AssistantPrompt.Surface? = nil) {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty || !attachments.isEmpty, !isStreaming(id), let chat = store.chat(id) else { return }
         guard let baseURL = settings.normalizedBaseURL else {
@@ -55,6 +56,7 @@ final class ChatController {
         let isAssistant = id == settings.assistantChatID
         if isAssistant {
             turns.append(.object(["role": .string("system"), "content": .string(AssistantPrompt.effective(settings.assistantPrompt))]))
+            turns.append(.object(["role": .string("system"), "content": .string(AssistantPrompt.note(surface ?? .window))]))
         }
         let note = missingCommandNote(chat)
         if let note {

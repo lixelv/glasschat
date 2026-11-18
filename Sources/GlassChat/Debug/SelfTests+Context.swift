@@ -23,6 +23,16 @@ extension SelfTests {
         expect(AssistantPrompt.previous.allSatisfy { AssistantPrompt.stored($0) == AssistantPrompt.standard },
                "a former standard prompt becomes the current one")
         expect(!AssistantPrompt.standard.contains("shortest"), "the standard prompt does not ask for the shortest answer")
+        // The three places: the compact notch is heard only, so the model opens it to show something.
+        let standard = AssistantPrompt.standard
+        expect(["compact notch", "expanded notch", "window", "glasschat__app_expand_notch"].allSatisfy(standard.contains),
+               "the standard prompt tells the three places and how to open the notch")
+        expect(AssistantPrompt.previous.contains { $0.contains("glasschat___app_read_clipboard") && !$0.contains("compact notch") },
+               "the prompt before the three places is a former standard")
+        expect(AssistantPrompt.note(.notch).contains("glasschat__app_expand_notch") && AssistantPrompt.note(.notch).contains("compact"),
+               "in the compact notch the model is told to open it to show something")
+        expect(AssistantPrompt.note(.expandedNotch).contains("expanded") && AssistantPrompt.note(.window).contains("window"),
+               "the open notch and the window are told apart")
     }
 }
 #endif

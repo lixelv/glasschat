@@ -29,10 +29,12 @@ struct AssistantSettings: View {
                     }
                 ShortcutRecorder()
                     .disabled(!settings.assistantEnabled)
+                Toggle("Talk while the pointer is on the notch", isOn: $settings.hoverToTalk)
+                    .disabled(!settings.assistantEnabled)
             } header: {
                 Text("Notch Assistant")
             } footer: {
-                footer("Hold the shortcut and talk; letting it go sends what you said (nothing, when you said nothing). Held during an answer, the answer goes on until you start talking. Esc or a click elsewhere folds the notch. Closing the window keeps GlassChat running while this is on.")
+                footer("Hold the shortcut (or rest the pointer on the notch) and talk; letting it go (or moving away) sends what you said, nothing when you said nothing. The notch stays compact and answers aloud; it opens when the assistant has something to show, or when you click it. Talking during an answer silences it. Esc or a click elsewhere folds the notch. Closing the window keeps GlassChat running while this is on.")
             }
 
             Section {

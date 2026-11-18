@@ -105,10 +105,6 @@ extension SelfTests {
         expect(PushToTalk.outcome(voiced: enough + 2, text: "…") == .discard, "PTT-3: noise marks only: discard")
         expect(PushToTalk.outcome(voiced: enough + 2, text: "") == .discard, "PTT-3: no text: discard")
         expect(PushToTalk.outcome(voiced: enough + 2, text: "  . ") == .discard, "PTT-3: blanks and a dot: discard")
-        expect(PushToTalk.foldsBack(openedByPress: true, outcome: .discard), "PTT-3: opened by the press and nothing sent: fold back")
-        expect(!PushToTalk.foldsBack(openedByPress: true, outcome: .send), "PTT-3: a sent phrase keeps the notch open")
-        expect(!PushToTalk.foldsBack(openedByPress: false, outcome: .discard), "PTT-3: it was open before: it stays")
-        expect(!PushToTalk.foldsBack(openedByPress: false, outcome: .send), "PTT-3: open before and sent: it stays")
     }
 }
 #endif

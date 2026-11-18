@@ -46,7 +46,7 @@ extension SelfTests {
         expect(prompt.contains("only when the user") || prompt.contains("only if the user"), "CLIP-4: the prompt says only when the user asks")
         expect(AssistantPrompt.previous.contains { $0.contains("glasschat__app_visualize") && $0.contains("charts, diagrams and interactive pages") },
                "CLIP-4: the former standard prompt moved to previous")
-        expect(AssistantPrompt.previous.allSatisfy { !$0.lowercased().contains("clipboard") }, "CLIP-4: no earlier prompt mentions it")
+        expect(AssistantPrompt.previous.dropFirst().allSatisfy { !$0.lowercased().contains("clipboard") }, "CLIP-4: no prompt before it mentions it")
         expect(!AssistantPrompt.previous.contains(AssistantPrompt.standard), "CLIP-4: the new standard is not in previous")
         expect(AssistantPrompt.previous.allSatisfy { AssistantPrompt.stored($0) == AssistantPrompt.standard }, "CLIP-4: every former standard prompt is replaced by the new one")
     }

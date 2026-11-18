@@ -21,6 +21,8 @@ final class NotchModel {
     var maxHeight = NotchGeometry.defaultMaxHeight
     var onExpand: (() -> Void)?
     var onCollapse: (() -> Void)?
+    /// The pointer came onto the notch's shape (true) or left it.
+    var onPointer: ((Bool) -> Void)?
 
     var state: NotchState {
         if isExpanded { return .expanded }

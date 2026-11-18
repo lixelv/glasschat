@@ -46,6 +46,8 @@ final class AppSettings {
             else { defaults.set("off", forKey: "talkShortcut") }
         }
     }
+    /// Resting the pointer on the folded notch talks as holding the shortcut does; moving it away sends.
+    var hoverToTalk: Bool { didSet { defaults.set(hoverToTalk, forKey: "hoverToTalk") } }
     /// A locale identifier for Apple recognition; empty: the system's.
     var transcriptionLanguage: String { didSet { defaults.set(transcriptionLanguage, forKey: "transcriptionLanguage") } }
     /// Messages of the assistant chat sent to the model; 0: all.
@@ -84,6 +86,8 @@ final class AppSettings {
         case "off" as String: talkShortcut = nil
         default: talkShortcut = .standard
         }
+        // A setting of earlier versions with the same name meant the same; on unless switched off.
+        hoverToTalk = defaults.object(forKey: "hoverToTalk") as? Bool ?? true
         transcriptionLanguage = defaults.string(forKey: "transcriptionLanguage") ?? ""
         assistantContextLimit = defaults.object(forKey: "assistantContextLimit") as? Int ?? 16
         systemVoice = defaults.string(forKey: "systemVoice") ?? ""

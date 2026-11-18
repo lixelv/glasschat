@@ -71,7 +71,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         TalkKey.shared.onCancel = { AssistantController.shared.talkCancelled() }
         TalkKey.shared.onEscape = {
             if NotchPanelController.shared.model.isExpanded { NotchPanelController.shared.collapse() }
+            // A phrase held by the pointer on the compact notch: Esc drops it.
+            else { AssistantController.shared.talkCancelled(.hover) }
         }
+        AssistantController.shared.prewarm()
         Self.registerShortcut()
         #if DEBUG
         if ProcessInfo.processInfo.environment["GLASSCHAT_NOTCH_DEMO"] == "1" { NotchDemo.start() }

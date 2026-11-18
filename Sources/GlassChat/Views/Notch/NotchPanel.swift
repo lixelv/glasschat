@@ -135,6 +135,7 @@ final class NotchPanelController {
         if inside != pointerInside {
             voiceLog.debug("pointer \(inside ? "entered" : "left", privacy: .public) at \(point.debugDescription, privacy: .public) shape \(self.shapeFrame.debugDescription, privacy: .public) state \(String(describing: self.model.state), privacy: .public)")
             pointerInside = inside
+            model.onPointer?(inside)
         }
         panel.ignoresMouseEvents = !inside
         if !model.isExpanded, model.isHovering != inside { model.isHovering = inside }

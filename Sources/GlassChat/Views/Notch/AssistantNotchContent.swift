@@ -94,9 +94,14 @@ struct AssistantNotchContent: View {
 
     private var listeningHint: String {
         switch assistant.phase {
-        case .listening: "Listening…"
-        case .transcribing: "…"
-        default: AppSettings.shared.talkShortcut.map { "Hold \($0.display) and talk." } ?? "Set a talk shortcut in Settings."
+        case .listening: return "Listening…"
+        case .transcribing: return "…"
+        default:
+            let hover = AppSettings.shared.hoverToTalk
+            if let shortcut = AppSettings.shared.talkShortcut {
+                return hover ? "Hold \(shortcut.display) or rest the pointer on the notch, and talk." : "Hold \(shortcut.display) and talk."
+            }
+            return hover ? "Rest the pointer on the notch and talk." : "Set a talk shortcut in Settings."
         }
     }
 

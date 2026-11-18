@@ -2,8 +2,10 @@ import AVFoundation
 import Foundation
 import Observation
 
-/// The voice of the notch, a walkie-talkie: it hears only while the talk shortcut is held; letting go sends what
-/// was said (nothing, when nothing was). Holding it during an answer lets the answer go on until the user speaks.
+/// The voice of the notch, a walkie-talkie: it hears only while the talk shortcut is held (or the pointer rests on
+/// the notch); letting go sends what was said (nothing, when nothing was). Talking does not open the notch: it stays
+/// compact (the face and the bars) until the model opens it to show something, or the user clicks it.
+/// Starting to talk during an answer silences its voice at once; the answer's text goes on until the user speaks.
 @Observable
 @MainActor
 final class AssistantController {
@@ -29,6 +31,18 @@ final class AssistantController {
     private(set) var downloadProgress: Double?
     /// An answer finished while the notch was folded.
     private(set) var hasUnreadAnswer = false
+    /// The user started talking again: the answer going on says nothing more aloud (app_say), until the next message.
+    private(set) var hushed = false
+
+    /// What holds the phrase: the talk shortcut, or the pointer resting on the folded notch.
+    enum TalkSource: Equatable { case key, hover }
+    private var talkSource: TalkSource?
+    /// The pointer came onto the folded notch; it talks after a moment (passing over it does not).
+    private var hoverWait: Task<Void, Never>?
+    /// How long the pointer rests on the notch before it listens.
+    static let hoverDelay: Duration = .milliseconds(250)
+    /// When the phrase was let go, to log how long sending it took.
+    private var releasedAt: Date?
 
     private let settings = AppSettings.shared
     private let recorder = VoiceRecorder.shared
@@ -88,6 +102,7 @@ final class AssistantController {
     func attach(_ model: NotchModel) {
         model.onExpand = { [weak self] in self?.expanded() }
         model.onCollapse = { [weak self] in self?.collapsed() }
+        model.onPointer = { [weak self] inside in self?.pointer(onNotch: inside) }
         Task { @MainActor [weak self, weak model] in
             while let self, let model {
                 model.mood = mood
@@ -100,30 +115,40 @@ final class AssistantController {
         }
     }
 
-    /// Opening the notch shows the conversation; it does not listen (only the shortcut does).
+    /// Opening the notch shows the conversation; it does not listen (the shortcut and the pointer do).
+    /// A click while the pointer was talking ends that phrase: what was said is sent.
     func expanded() {
         voiceLog.debug("notch expanded")
-        // Local Whisper loads its model while the user may start talking.
-        if settings.recognitionMode == .whisper { Task { _ = try? await VoiceModels.shared.transcriber() } }
+        prewarm()
         hasUnreadAnswer = false
         error = nil
+        hoverWait?.cancel()
+        hoverWait = nil
+        if talkSource == .hover { talkReleased(.hover) }
     }
 
     /// Folding drops the phrase being held and stops speaking; an answer being written goes on.
     func collapsed() {
         voiceLog.debug("notch collapsed")
         cancelTalk()
-        if !foldingBack { Speaker.shared.stop() }
+        Speaker.shared.stop()
     }
 
-    /// Folding a notch that opened only for a phrase: the answer it found going on keeps its voice.
-    private var foldingBack = false
-
-    private func foldBack() {
-        foldingBack = true
-        NotchPanelController.shared.collapse()
-        foldingBack = false
+    /// Local Whisper loads its model before it is needed: loading it when the phrase is over takes seconds.
+    func prewarm() {
+        guard settings.recognitionMode == .whisper, VoiceModels.shared.whisper == .ready else { return }
+        Task { _ = try? await VoiceModels.shared.transcriber() }
     }
+
+    /// The model asked to show what it writes: the compact notch opens (without taking the keyboard).
+    func expandForAnswer() {
+        guard !isExpanded else { return }
+        voiceLog.debug("the model opens the notch")
+        NotchPanelController.shared.expand(focus: false)
+    }
+
+    /// Where the assistant is seen when a phrase is sent: the compact notch, or the open one.
+    private var surface: AssistantPrompt.Surface { isExpanded ? .expandedNotch : .notch }
 
     func stopAll() {
         voiceLog.debug("stop all")
@@ -164,44 +189,74 @@ final class AssistantController {
         return chat.id
     }
 
-    // MARK: The shortcut
+    // MARK: The shortcut and the pointer
 
-    /// The shortcut went down: the notch opens and listens until it is let go.
-    func talkPressed() {
+    /// The pointer came onto the notch or left it. Resting on the folded notch talks as the shortcut does;
+    /// leaving it sends the phrase.
+    private func pointer(onNotch inside: Bool) {
+        hoverWait?.cancel()
+        hoverWait = nil
+        guard inside else {
+            if talkSource == .hover { talkReleased(.hover) }
+            return
+        }
+        guard settings.hoverToTalk, !isExpanded, talk == nil else { return }
+        hoverWait = Task { [weak self] in
+            try? await Task.sleep(for: Self.hoverDelay)
+            guard let self, !Task.isCancelled, !self.isExpanded else { return }
+            self.hoverWait = nil
+            self.talkPressed(.hover)
+        }
+    }
+
+    /// The shortcut went down (or the pointer rests on the notch): it listens until it is let go. The notch stays
+    /// as it is (compact when folded); the answer's voice stops at once.
+    func talkPressed(_ source: TalkSource = .key) {
         guard talk == nil else { return }
-        voiceLog.debug("talk pressed")
-        openedByPress = !isExpanded
-        if openedByPress { NotchPanelController.shared.expand(focus: false) }
-        error = nil
+        voiceLog.debug("talk pressed (\(String(describing: source), privacy: .public))")
+        talkSource = source
+        releasedAt = nil
+        prewarm()
         let chat = chatID
+        // Talking again silences every app_say of the answer going on; its text goes on until the user speaks.
+        if stillAnswering(chat) {
+            hushed = true
+            Speaker.shared.stop()
+        }
+        error = nil
         let id = UUID()
         talkID = id
         talk = Task { [weak self] in
             await self?.hold(chat: chat)
-            if self?.talkID == id { self?.talk = nil }
+            if self?.talkID == id {
+                self?.talk = nil
+                self?.talkSource = nil
+            }
         }
     }
 
-    /// The shortcut was let go: the phrase is over.
-    func talkReleased() {
-        guard talk != nil else { return }
-        voiceLog.debug("talk released")
+    /// The shortcut was let go (or the pointer left the notch): the phrase is over. Only what started it ends it.
+    func talkReleased(_ source: TalkSource = .key) {
+        guard talk != nil, talkSource == source else { return }
+        voiceLog.debug("talk released (\(String(describing: source), privacy: .public))")
+        releasedAt = .now
         released = true
         recorder.finish()
     }
 
-    /// Another key came with the shortcut (another shortcut), or the notch folded: nothing is sent.
-    func talkCancelled() {
-        guard talk != nil else { return }
+    /// Another key came with the shortcut (another shortcut), Esc, or the notch folded: nothing is sent.
+    func talkCancelled(_ source: TalkSource? = nil) {
+        guard talk != nil, source == nil || talkSource == source else { return }
         voiceLog.debug("talk cancelled")
-        let folds = foldsBack
         cancelTalk()
-        if folds { foldBack() }
     }
 
     private func cancelTalk() {
+        hoverWait?.cancel()
+        hoverWait = nil
         talk?.cancel()
         talk = nil
+        talkSource = nil
         talkID = UUID()
         recorder.cancel()
         session?.cancel()
@@ -215,8 +270,6 @@ final class AssistantController {
 
     /// The shortcut was let go before the recording started: nothing will end it, so it must not start.
     private var released = false
-    /// The notch was folded when the shortcut went down.
-    private var openedByPress = false
     /// The user started talking over the answer (it was stopped).
     private var interrupted = false
     /// What was heard, one utterance at a time (during an answer: the echo before the user's words is not theirs).
@@ -306,22 +359,11 @@ final class AssistantController {
         }
     }
 
-    /// Nothing was said: nothing is sent, and a notch opened only for this folds again.
+    /// Nothing was said: nothing is sent.
     private func finishSilently() {
         voiceLog.debug("nothing said: nothing sent")
         listening = false
         transcribing = false
-        if foldsBack {
-            // Folding cancels the phrase; this one is over already.
-            talk = nil
-            talkID = UUID()
-            foldBack()
-        }
-    }
-
-    /// A notch opened only for a phrase that sent nothing folds again.
-    private var foldsBack: Bool {
-        isExpanded && PushToTalk.foldsBack(openedByPress: openedByPress, outcome: .discard)
     }
 
     private func stillAnswering(_ chat: Chat.ID) -> Bool {
@@ -377,20 +419,30 @@ final class AssistantController {
         guard !Task.isCancelled else { return }
         // The answer it interrupted is over (its watcher has seen it stop): errors of the next one count again.
         interrupted = false
+        hushed = false
         Speaker.shared.resetSpoken()
-        ChatController.shared.send(text, in: chat)
+        let surface = surface
+        ChatController.shared.send(text, in: chat, surface: surface)
+        if let releasedAt {
+            voiceLog.debug("sent \(Date.now.timeIntervalSince(releasedAt), format: .fixed(precision: 2))s after letting go")
+            self.releasedAt = nil
+        }
         guard ChatController.shared.isStreaming(chat) else {
             error = ChatController.shared.errors[chat]?.localizedDescription
             return
         }
-        watchAnswer(chat)
+        watchAnswer(chat, surface: surface)
     }
 
-    /// Follows the answer until it is written and spoken.
-    private func watchAnswer(_ chat: Chat.ID) {
+    /// Follows the answer until it is written and spoken. One heard in the compact notch is not left unread:
+    /// only one the user folded away while reading it is.
+    private func watchAnswer(_ chat: Chat.ID, surface: AssistantPrompt.Surface) {
         answerWatch?.cancel()
         answerWatch = Task { [weak self] in
+            // Opened during the answer (the model showed something, or the user clicked): it is there to be read.
+            var shownDuring = false
             while ChatController.shared.isStreaming(chat), !Task.isCancelled {
+                if self?.isExpanded == true { shownDuring = true }
                 // An action to allow or a question to answer: the notch opens for its card.
                 if ApprovalCenter.shared.pending[chat] != nil || QuestionCenter.shared.pending[chat] != nil,
                    self?.isExpanded == false {
@@ -403,7 +455,7 @@ final class AssistantController {
             if let failure = ChatController.shared.errors[chat], !interrupted {
                 error = failure.localizedDescription
             }
-            if !isExpanded { hasUnreadAnswer = true }
+            if !isExpanded, surface == .expandedNotch || shownDuring { hasUnreadAnswer = true }
         }
     }
 

@@ -1,7 +1,7 @@
 import Foundation
 
 /// The built-in tools in parts the user switches on and off one by one ("App" in the Tools popover).
-/// `necessary` (the two searches, app_say and app_ask_user) is always on and not shown.
+/// `necessary` (the two searches, app_say, app_ask_user and app_expand_notch) is always on and not shown.
 enum AppModule: String, CaseIterable, Sendable {
     case necessary, files, user, clipboard, chats, models, mcp, visualize
 

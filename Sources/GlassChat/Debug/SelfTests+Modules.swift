@@ -7,8 +7,9 @@ extension SelfTests {
         let builtIn = all.keys.filter { $0.hasPrefix(MCPManager.registryPrefix + "__") }
         expect(builtIn.allSatisfy { AppModule.of($0) != nil }, "every built-in tool has a module")
         let necessary = Set(builtIn.filter { AppModule.of($0) == .necessary })
-        expect(necessary == [MCPManager.searchName, MCPManager.searchAllName, "glasschat__app_say", "glasschat__app_ask_user"],
-               "necessary: the two searches, app_say and app_ask_user")
+        expect(necessary == [MCPManager.searchName, MCPManager.searchAllName, "glasschat__app_say", "glasschat__app_ask_user",
+                             "glasschat__app_expand_notch"],
+               "necessary: the two searches, app_say, app_ask_user and app_expand_notch")
         expect(AppModule.of("glasschat__app_bash") == .files && AppModule.of("glasschat___mcp_registry_add") == .mcp
                && AppModule.of("glasschat___app_set_model") == .models && AppModule.of("glasschat___app_alert") == .user,
                "tools sit in their modules")
