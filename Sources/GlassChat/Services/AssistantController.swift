@@ -3,8 +3,9 @@ import Foundation
 import Observation
 
 /// The voice of the notch, a walkie-talkie: it hears only while the talk shortcut is held (or the pointer rests on
-/// the notch); letting go sends what was said (nothing, when nothing was). Talking does not open the notch: it stays
-/// compact (the face and the bars) until the model opens it to show something, or the user clicks it.
+/// the notch); letting go sends what was said (nothing, when nothing was). Two modes: the shortcut opens the notch
+/// into the chat; the pointer keeps it compact (the face and the bars) until the model opens it to show something,
+/// or the user clicks it.
 /// Starting to talk during an answer silences its voice at once; the answer's text goes on until the user speaks.
 @Observable
 @MainActor
@@ -131,8 +132,25 @@ final class AssistantController {
     func collapsed() {
         voiceLog.debug("notch collapsed")
         cancelTalk()
-        Speaker.shared.stop()
+        if !foldingBack { Speaker.shared.stop() }
     }
+
+    /// Folding a notch that opened only for a phrase: the answer it found going on keeps its voice.
+    private var foldingBack = false
+
+    private func foldBack() {
+        foldingBack = true
+        NotchPanelController.shared.collapse()
+        foldingBack = false
+    }
+
+    /// The shortcut opened the notch, and nothing was said: it folds again.
+    private var foldsBack: Bool {
+        isExpanded && PushToTalk.foldsBack(openedByPress: openedByPress, outcome: .discard)
+    }
+
+    /// The notch was folded when the shortcut went down (and the shortcut opened it).
+    private var openedByPress = false
 
     /// Local Whisper loads its model before it is needed: loading it when the phrase is over takes seconds.
     func prewarm() {
@@ -209,12 +227,14 @@ final class AssistantController {
         }
     }
 
-    /// The shortcut went down (or the pointer rests on the notch): it listens until it is let go. The notch stays
-    /// as it is (compact when folded); the answer's voice stops at once.
+    /// The shortcut went down (or the pointer rests on the notch): it listens until it is let go. The shortcut opens
+    /// the notch into the chat; the pointer keeps it compact. The answer's voice stops at once.
     func talkPressed(_ source: TalkSource = .key) {
         guard talk == nil else { return }
         voiceLog.debug("talk pressed (\(String(describing: source), privacy: .public))")
         talkSource = source
+        openedByPress = source == .key && !isExpanded
+        if openedByPress { NotchPanelController.shared.expand(focus: false) }
         releasedAt = nil
         prewarm()
         let chat = chatID
@@ -248,7 +268,9 @@ final class AssistantController {
     func talkCancelled(_ source: TalkSource? = nil) {
         guard talk != nil, source == nil || talkSource == source else { return }
         voiceLog.debug("talk cancelled")
+        let folds = foldsBack
         cancelTalk()
+        if folds { foldBack() }
     }
 
     private func cancelTalk() {
@@ -359,11 +381,18 @@ final class AssistantController {
         }
     }
 
-    /// Nothing was said: nothing is sent.
+    /// Nothing was said: nothing is sent, and a notch the shortcut opened only for this folds again.
     private func finishSilently() {
         voiceLog.debug("nothing said: nothing sent")
         listening = false
         transcribing = false
+        if foldsBack {
+            // Folding cancels the phrase; this one is over already.
+            talk = nil
+            talkSource = nil
+            talkID = UUID()
+            foldBack()
+        }
     }
 
     private func stillAnswering(_ chat: Chat.ID) -> Bool {

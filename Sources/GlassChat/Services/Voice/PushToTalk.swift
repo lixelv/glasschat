@@ -82,4 +82,9 @@ enum PushToTalk {
     static func outcome(voiced: TimeInterval, text: String) -> Outcome {
         voiced >= SilenceDetector.minimumVoiced && SpeechText.isWords(text) ? .send : .discard
     }
+
+    /// The shortcut opened the notch, and nothing was said: it folds again.
+    static func foldsBack(openedByPress: Bool, outcome: Outcome) -> Bool {
+        openedByPress && outcome == .discard
+    }
 }

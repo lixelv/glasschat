@@ -34,7 +34,7 @@ struct AssistantSettings: View {
             } header: {
                 Text("Notch Assistant")
             } footer: {
-                footer("Hold the shortcut (or rest the pointer on the notch) and talk; letting it go (or moving away) sends what you said, nothing when you said nothing. The notch stays compact and answers aloud; it opens when the assistant has something to show, or when you click it. Talking during an answer silences it. Esc or a click elsewhere folds the notch. Closing the window keeps GlassChat running while this is on.")
+                footer("Hold the shortcut and talk: the notch opens into the chat, and letting go sends what you said (nothing, when you said nothing). Or rest the pointer on the notch and talk: it stays compact and answers aloud, opening only when the assistant has something to show or you click it; moving away sends. Talking during an answer silences it. Esc or a click elsewhere folds the notch. Closing the window keeps GlassChat running while this is on.")
             }
 
             Section {
